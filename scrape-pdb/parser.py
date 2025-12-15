@@ -4,6 +4,9 @@
 from typing import Optional, Iterable
 import re
 import os
+from pathlib import Path
+
+from Bio.PDB.MMCIF2Dict import MMCIF2Dict
 
 from .altloc import group_by_id, build_altloc_files_for_center
 from .models import Atom
@@ -17,7 +20,104 @@ from .geometry import classify_geometry, coord_string
 import logging
 
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("pipeline.parser")
+
+
+def detect_file_format(path: str) -> str:
+    """Detect if file is PDB or CIF format based on extension and content."""
+    ext = os.path.splitext(path)[1].lower()
+    
+    if ext in ('.cif', '.mmcif'):
+        return 'cif'
+    elif ext == '.pdb':
+        return 'pdb'
+    else:
+        # Fallback: peek at first line
+        try:
+            with open(path, 'r') as f:
+                first_line = f.readline().strip()
+                if first_line.startswith('data_'):
+                    return 'cif'
+                else:
+                    return 'pdb'
+        except Exception:
+            return 'pdb'  # default assumption
+
+
+def parse_cif_atom_line(cif_dict: dict, idx: int) -> Optional[Atom]:
+    """Parse a single atom from mmCIF data structure."""
+    # mmCIF uses different column names
+    # You'll need to map CIF columns to your Atom model
+    try:
+        group_PDB = cif_dict.get('_atom_site.group_PDB', [])[idx]  # ATOM or HETATM
+        serial = int(cif_dict.get('_atom_site.id', [])[idx])
+        atom_name = cif_dict.get('_atom_site.label_atom_id', [])[idx]
+        altloc = cif_dict.get('_atom_site.label_alt_id', [''])[idx]
+        if altloc == '.':
+            altloc = ''
+        resname = cif_dict.get('_atom_site.label_comp_id', [])[idx]
+        chain = cif_dict.get('_atom_site.label_asym_id', [])[idx]
+        resseq = cif_dict.get('_atom_site.label_seq_id', [])[idx]
+        icode = cif_dict.get('_atom_site.pdbx_PDB_ins_code', [''])[idx]
+        if icode == '?':
+            icode = ''
+        
+        x = float(cif_dict.get('_atom_site.Cartn_x', [])[idx])
+        y = float(cif_dict.get('_atom_site.Cartn_y', [])[idx])
+        z = float(cif_dict.get('_atom_site.Cartn_z', [])[idx])
+        
+        occ_str = cif_dict.get('_atom_site.occupancy', ['1.0'])[idx]
+        occ = float(occ_str) if occ_str not in ('.', '?') else 1.0
+        
+        bfac_str = cif_dict.get('_atom_site.B_iso_or_equiv', ['0.0'])[idx]
+        bfac = float(bfac_str) if bfac_str not in ('.', '?') else 0.0
+        
+        element = cif_dict.get('_atom_site.type_symbol', [])[idx].upper()
+        charge = cif_dict.get('_atom_site.pdbx_formal_charge', [''])[idx]
+        
+        # Create a fake "line" for compatibility
+        line = f"{group_PDB:<6}{serial:>5} {atom_name:<4}{altloc:1}{resname:>3} {chain:1}{resseq:>4}{icode:1}   {x:8.3f}{y:8.3f}{z:8.3f}{occ:6.2f}{bfac:6.2f}          {element:>2}{charge:>2}"
+        
+        return Atom(group_PDB, serial, atom_name, altloc, resname, chain, resseq, icode,
+                   x, y, z, occ, bfac, element, charge, line)
+    except (IndexError, ValueError, KeyError) as e:
+        logger.debug(f"Failed to parse CIF atom at index {idx}: {e}")
+        return None
+
+
+def load_cif_atoms_all(path: str, first_model_only: bool = False) -> list[Atom]:
+    """Load all atoms from mmCIF file."""
+    try:
+        # Use CIF parser from BioPython
+        cif_dict = MMCIF2Dict(path)
+        
+        atoms: list[Atom] = []
+        atom_count = len(cif_dict.get('_atom_site.id', []))
+        
+        for idx in range(atom_count):
+            atom = parse_cif_atom_line(cif_dict, idx)
+            if atom:
+                atoms.append(atom)
+        
+        return atoms
+        
+    except ImportError:
+        logger.error("BioPython not installed. Install with: pip install biopython")
+        return []
+    except Exception as e:
+        logger.error(f"Failed to parse CIF file {path}: {e}")
+        return []
+
+
+def load_atoms_auto(path: str, first_model_only: bool = False) -> list[Atom]:
+    """Auto-detect format and load atoms."""
+    fmt = detect_file_format(path)
+    
+    if fmt == 'cif':
+        logger.info(f"Detected CIF format for {path}")
+        return load_cif_atoms_all(path, first_model_only)
+    else:
+        return load_pdb_atoms_all(path, first_model_only)
 
 
 def parse_pdb_atom_line(line: str) -> Optional[Atom]:
@@ -168,8 +268,7 @@ def iter_altloc_metal_records(pdb_path: str, metal_set: set[str]) -> Iterable[At
 
 def process_pdb(
     pdb_path: str,
-    config: PipelineConfig,
-    logger: logging.Logger
+    config: PipelineConfig
 ) -> list[str]:
     """
     Process a single PDB file.
@@ -183,9 +282,9 @@ def process_pdb(
         List of written XYZ file paths
     """
     base_id = os.path.splitext(os.path.basename(pdb_path))[0]
-    logger.info(f"\n[=] Processing {base_id} …")
+    logger.info(f"[=] Processing {base_id} …")
 
-    raw_atoms = load_pdb_atoms_all(pdb_path, first_model_only=False)
+    raw_atoms = load_atoms_auto(pdb_path, first_model_only=False)
     if not raw_atoms:
         logger.info(f"[!] No atoms parsed in {pdb_path}")
         return []
@@ -214,8 +313,8 @@ def process_pdb(
 
     # Prepare outputs
     os.makedirs(config.output_dir, exist_ok=True)
-    write_altloc_report_header()
-    ensure_csv_headers()
+    write_altloc_report_header(config)
+    ensure_csv_headers(config)
 
     # Group raw atoms by id for altloc logic
     raw_groups = group_by_id(raw_atoms)
@@ -295,7 +394,7 @@ def process_pdb(
                             flags["planar"], flags["axial"], flags["distorted"], flags["JT"],
                             other_metals,  # OTHER_METALS
                             "ALTLOC", "", path, (f"{resolution_angs:.2f}" if isinstance(resolution_angs,(int,float)) else "NA")
-                        ])
+                        ], config)
                 else:
                     # homo or multi_hetero → one row per cluster focused on the target metal
                     c = center_for_alt
@@ -319,7 +418,7 @@ def process_pdb(
                         metrics["sigma_d"], metrics["delta_d"], metrics["RMS_plane"], metrics["h_max"],
                         flags["planar"], flags["axial"], flags["distorted"], flags["JT"],
                         other, "ALTLOC", "", path, (f"{resolution_angs:.2f}" if isinstance(resolution_angs,(int,float)) else "NA")
-                    ])
+                    ], config)
             written_paths.extend(alt_written)
         else:
             # No altloc case → write a single base file
@@ -328,7 +427,7 @@ def process_pdb(
             # For writing XYZ we use origin = first target center
             origin_atom = center_for_alt
             xyz_name = f"{base_name_common}.xyz"
-            xyz_path = os.path.join(config.output_dir, xyz_name)
+            xyz_path = str(Path(config.output_dir) / "xyz_files" / xyz_name)
             extra = f"CLUSTER_TYPE={comp_type}"
             write_xyz(xyz_path, base_id, cluster_counter, target_upper, config.cutoff,
                       ("centroid" if len(centers)>1 else "single_center"), c_centroid,
@@ -350,7 +449,7 @@ def process_pdb(
                         metrics["sigma_d"], metrics["delta_d"], metrics["RMS_plane"], metrics["h_max"],
                         flags["planar"], flags["axial"], flags["distorted"], flags["JT"],
                         "", "", "", xyz_path, (f"{resolution_angs:.2f}" if isinstance(resolution_angs,(int,float)) else "NA")
-                    ])
+                    ], config)
             else:
                 c = center_for_alt
                 neigh = select_neighbors_from(c, selected, config.cutoff)
@@ -371,7 +470,7 @@ def process_pdb(
                     metrics["sigma_d"], metrics["delta_d"], metrics["RMS_plane"], metrics["h_max"],
                     flags["planar"], flags["axial"], flags["distorted"], flags["JT"],
                     other, "", "", xyz_path, (f"{resolution_angs:.2f}" if isinstance(resolution_angs,(int,float)) else "NA")
-                ])
+                ], config)
 
         # AltLoc metals report within vicinity
         alt_rows: list[list] = []
@@ -387,6 +486,6 @@ def process_pdb(
             if in_union_xyz(a.x, a.y, a.z):
                 alt_rows.append([base_id, a.record, a.serial, a.atom_name, a.element, a.altloc,
                                  a.resname, a.chain, a.resseq, a.x, a.y, a.z, cluster_counter, comp_type])
-        append_altloc_rows(alt_rows)
+        append_altloc_rows(alt_rows, config)
 
     return written_paths

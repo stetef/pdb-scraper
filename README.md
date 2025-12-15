@@ -1,4 +1,4 @@
-# PDB Phase 1 Pipeline - Refactored
+# PDB Scraper - Phase 1 Pipeline
 
 A modular, production-ready pipeline for extracting metal-centered clusters from PDB files.
 
@@ -33,10 +33,72 @@ pdb_phase1/
 
 ## Installation
 
+### Prerequisites
+
+- Python 3.11 or higher
+- [uv](https://github.com/astral-sh/uv) package manager
+
+### Setup
+
+#### 1. Install uv
+
 ```bash
-# Clone or copy the pdb_phase1 package
-cd your_project/
-# Ensure the pdb_phase1 directory is in your Python path
+# macOS/Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Windows (PowerShell)
+powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# Or via pip
+pip install uv
+```
+
+#### 2. Install dependencies
+
+```bash
+# From project root directory
+uv sync
+```
+
+This will create a virtual environment and install all required dependencies from `pyproject.toml`.
+
+### Usage
+
+#### Run the pipeline
+
+```bash
+# Using uv run (recommended)
+uv run python -m scrape-pdb config.json
+
+# With verbose output
+uv run python -m scrape-pdb config.json --verbose
+
+# Generate example config
+uv run python -m scrape-pdb --example
+```
+
+#### Alternative: Manual activation
+
+```bash
+# Activate the virtual environment
+source .venv/bin/activate  # macOS/Linux
+.venv\Scripts\activate     # Windows
+
+# Run directly
+python -m scrape-pdb config.json
+```
+
+### Development
+
+```bash
+# Add new dependencies
+uv add package-name
+
+# Update dependencies
+uv sync --upgrade
+
+# Run tests (if you have them)
+uv run pytest
 ```
 
 ## Quick Start
@@ -44,7 +106,7 @@ cd your_project/
 ### 1. Create a configuration file
 
 ```bash
-python -m pdb_phase1 --example
+uv run python -m scrape-pdb --example
 ```
 
 This creates `example_config.json`:
@@ -70,13 +132,13 @@ This creates `example_config.json`:
 
 ```bash
 # Basic usage
-python -m pdb_phase1 config.json
+uv run python -m scrape-pdb config.json
 
 # With verbose console output
-python -m pdb_phase1 config.json --verbose
+uv run python -m scrape-pdb config.json --verbose
 
 # Or use the main module directly
-python -m pdb_phase1.main config.json
+uv run python -m scrape-pdb.main config.json
 ```
 
 ## Configuration Reference
@@ -136,107 +198,11 @@ Located in `output_dir/`, one per cluster:
 `output_dir/altloc_report.csv` tracks all metals with alternate locations.
 
 ### 4. Cache File
-`phase1_cache.json` stores run manifests for reproducibility.
+`cache.json` stores run manifests for reproducibility.
 
 ### 5. Log File
 `output_dir/pipeline.log` contains all pipeline activity.
 
-## Module Reference
-
-### logger.py
-```python
-from pdb_phase1.logger import setup_logger, PipelineLogger
-
-# Setup logging
-logger = setup_logger(
-    name="my_logger",
-    log_file=Path("output.log"),
-    level=logging.INFO
-)
-
-# Use context manager
-with PipelineLogger(logger, "1ubq") as pdb_log:
-    pdb_log.log_clusters(5)
-    pdb_log.log_metals(10, 3)
-```
-
-### models.py
-```python
-from pdb_phase1.models import Atom, MustHaveSpec, parse_must_have
-
-# Parse must-have specification
-spec = parse_must_have("S>=2,N>=1")
-print(spec.passes(neighbor_atoms))  # True/False
-```
-
-### config.py
-```python
-from pdb_phase1.config import load_config, print_config_summary
-
-config = load_config("config.json")
-print_config_summary(config)
-```
-
-### utils.py
-```python
-from pdb_phase1.utils import dist, centroid, connected_components
-
-# Calculate distance
-d = dist((0,0,0), (1,1,1))
-
-# Find connected components
-points = [(0,0,0), (1,0,0), (5,0,0)]
-comps = connected_components(points, cutoff=2.0)
-```
-
-## Advanced Usage
-
-### Custom Processing Script
-
-```python
-from pdb_phase1 import load_config, run_pipeline
-from pdb_phase1.parser import load_pdb_atoms_all
-from pdb_phase1.logger import setup_logger
-import logging
-
-# Setup custom logging
-logger = setup_logger(
-    name="custom",
-    log_file=Path("custom.log"),
-    level=logging.DEBUG
-)
-
-# Load config
-config = load_config("config.json")
-
-# Run pipeline
-exit_code = run_pipeline("config.json", verbose=True)
-```
-
-### Programmatic Use
-
-```python
-from pdb_phase1.parser import process_pdb
-from pdb_phase1.config import PipelineConfig
-from pdb_phase1.models import parse_must_have
-
-# Create config programmatically
-config = PipelineConfig(
-    cutoff=5.0,
-    target="FE",
-    metals_excluded=set(),
-    must_have=parse_must_have("S>=2"),
-    include_waters=True,
-    # ... other params
-)
-
-# Process single PDB
-written_files = process_pdb(
-    pdb_path="1ubq.pdb",
-    config=config,
-    logger=logger
-)
-```
 
 ## Best Practices
 
@@ -255,26 +221,6 @@ The pipeline uses several error handling strategies:
 3. **Resource cleanup** - Context managers ensure proper cleanup
 4. **Detailed logging** - Stack traces in log files for debugging
 
-## Migration from Old Script
-
-If you have existing code using the old monolithic script:
-
-**Old:**
-```python
-python pdb_phase1.py  # Interactive prompts
-```
-
-**New:**
-```bash
-# Create config once
-python -m pdb_phase1 --example
-
-# Edit config.json with your settings
-
-# Run pipeline
-python -m pdb_phase1 config.json
-```
-
 ## Troubleshooting
 
 ### Problem: "Config file not found"
@@ -287,9 +233,9 @@ python -m pdb_phase1 config.json
 **Solution:** Use `--verbose` to see real-time progress. Check network connection for downloads.
 
 ### Problem: Missing dependencies
-**Solution:** Install required packages:
+**Solution:** resync uv packages:
 ```bash
-pip install numpy  # Optional, for geometry calculations
+uv sync --upgrade
 ```
 
 ## Performance
@@ -298,22 +244,6 @@ pip install numpy  # Optional, for geometry calculations
 - **Cluster detection**: O(m²) where m = number of metals
 - **Memory**: Proportional to largest PDB file
 - **Parallelization**: Process multiple PDBs by running multiple pipeline instances
-
-## Testing
-
-```bash
-# Run with example config
-python -m pdb_phase1 --example
-python -m pdb_phase1 example_config.json --verbose
-
-# Check outputs
-ls pdb_env_outputs/
-cat pdb_env_outputs/pipeline.log
-```
-
-## License
-
-[Your license here]
 
 ## Citation
 

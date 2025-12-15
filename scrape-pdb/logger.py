@@ -5,33 +5,34 @@ import logging
 import sys
 from pathlib import Path
 from typing import Optional
+from tqdm import tqdm
 
+
+class TqdmLoggingHandler(logging.Handler):
+    """Custom handler that uses tqdm.write() to avoid breaking progress bars."""
+    
+    def __init__(self, level=logging.NOTSET):
+        super().__init__(level)
+    
+    def emit(self, record):
+        try:
+            msg = self.format(record)
+            tqdm.write(msg)
+        except Exception:
+            self.handleError(record)
 
 def setup_logger(
-    name: str = "pdb_phase1",
+    name: str = "pipeline",
     log_file: Optional[Path] = None,
     level: int = logging.INFO,
     console: bool = True
 ) -> logging.Logger:
-    """
-    Setup logger with file and/or console handlers.
-    
-    Args:
-        name: Logger name
-        log_file: Path to log file (optional)
-        level: Logging level
-        console: Whether to also log to console
-    
-    Returns:
-        Configured logger instance
-    """
+    """..."""
     logger = logging.getLogger(name)
     logger.setLevel(level)
     
-    # Remove existing handlers to avoid duplicates
     logger.handlers.clear()
     
-    # Format
     formatter = logging.Formatter(
         fmt='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'
@@ -45,9 +46,9 @@ def setup_logger(
         fh.setFormatter(formatter)
         logger.addHandler(fh)
     
-    # Console handler
+    # Console handler - use TqdmLoggingHandler instead of StreamHandler
     if console:
-        ch = logging.StreamHandler(sys.stdout)
+        ch = TqdmLoggingHandler()
         ch.setLevel(level)
         ch.setFormatter(formatter)
         logger.addHandler(ch)

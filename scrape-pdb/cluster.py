@@ -8,7 +8,7 @@ from .constants import WATER_RESIDUES
 from .utils import dist
 import logging
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("pipeline.cluster")
 
 
 def determine_cluster_type(metals_in_comp: list[Atom], target_upper: str, target_element: Optional[str]) -> str:

@@ -13,7 +13,7 @@ from .config import PipelineConfig
 
 import logging
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("pipeline.writer")
 
 
 def write_xyz(path: str,
@@ -51,33 +51,34 @@ def write_xyz(path: str,
             f.write(f"{elm:2s}  {x: .6f}  {y: .6f}  {z: .6f}  # {meta}\n")
 
 def ensure_csv_headers(config: PipelineConfig):
-    os.makedirs(config.output_dir, exist_ok=True)
-    if not os.path.isfile(CLUSTERS_CSV):
-        with open(CLUSTERS_CSV, "w", newline="") as csvfile:
+    # Ensure output directory exists and clusters CSV has header row
+    Path(config.output_dir).mkdir(parents=True, exist_ok=True)
+    clusters_path = config.clusters_csv
+    if not clusters_path.is_file():
+        with open(clusters_path, "w", newline="") as csvfile:
             w = csv.writer(csvfile)
-            w.writerow([
-                "PDB","CLUSTER","CLUSTER_TYPE","CENTER_IDX","CENTER_ELEM","CENTER_ATOMNAME","CHAIN","RESSEQ","ICODE","RESNAME","ALTLOC","OCC",
-                "CN","GEOM","COORD","RMS_theta","MAX_angle_dev","sigma_d","delta_d","RMS_plane","h_max",
-                "planar","axial","distorted","JT","OTHER_METALS","ALTLOC_CASE","ALTLOC_LABEL","XYZ_PATH","RESOLUTION_A"
-            ])
+            w.writerow(CLUSTERS_CSV_FIELDS)
 
-def write_clusters_csv_row(row: list):
-    ensure_csv_headers()
-    with open(CLUSTERS_CSV, "a", newline="") as csvfile:
+def write_clusters_csv_row(row: list, config: PipelineConfig):
+    ensure_csv_headers(config)
+    clusters_path = config.clusters_csv
+    with open(clusters_path, "a", newline="") as csvfile:
         w = csv.writer(csvfile)
         w.writerow(row)
 
-def write_altloc_report_header():
-    os.makedirs(os.path.dirname(ALTLOC_REPORT), exist_ok=True)
-    if not os.path.isfile(ALTLOC_REPORT):
-        with open(ALTLOC_REPORT, "w", newline="") as csvfile:
+def write_altloc_report_header(config: PipelineConfig):
+    altloc_path = config.altloc_report
+    Path(altloc_path.parent).mkdir(parents=True, exist_ok=True)
+    if not altloc_path.is_file():
+        with open(altloc_path, "w", newline="") as csvfile:
             writer = csv.writer(csvfile)
-            writer.writerow(["pdb_id","record","serial","atom_name","element","altloc","resname","chain","resseq","x","y","z","cluster_id","cluster_type"])
+            writer.writerow(ALTLOC_REPORT_FIELDS)
 
-def append_altloc_rows(rows: list[list]):
+def append_altloc_rows(rows: list[list], config: PipelineConfig):
     if not rows:
         return
-    with open(ALTLOC_REPORT, "a", newline="") as csvfile:
+    altloc_path = config.altloc_report
+    with open(altloc_path, "a", newline="") as csvfile:
         writer = csv.writer(csvfile)
         writer.writerows(rows)
 

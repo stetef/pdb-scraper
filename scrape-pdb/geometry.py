@@ -7,7 +7,7 @@ from .utils import dist
 import math
 import logging
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("pipeline.geometry")
 
 try:
     import numpy as np

@@ -2,17 +2,18 @@
 """AltLoc handling logic."""
 
 from typing import Optional
+from pathlib import Path
 import os
 
 from .models import Atom, MustHaveSpec
-from .writer import write_xyz, write_clusters_csv_row
+from .writer import write_xyz
 from .cluster import select_neighbors_from, apply_water_toggle
 from .geometry import classify_geometry
 from .utils import dist
 
 import logging
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("pipeline.altloc")
 
 
 def group_by_id(atoms: list[Atom]) -> dict[tuple[str,str,str,str], dict[str, Atom]]:
@@ -42,7 +43,7 @@ def build_altloc_files_for_center(
         selected_atoms_raw: list[Atom],
         raw_groups: dict[tuple[str,str,str,str], dict[str,Atom]],
         cutoff: float,
-        out_dir: str,
+    out_dir: Path | str,
         base_name_common: str,
         origin_kind: str,
         centroid_pt: tuple[float,float,float],
@@ -112,7 +113,7 @@ def build_altloc_files_for_center(
 
             alt_tag = f"altlocLIG{lab}"
             xyz_name = f"{base_name_common}_{alt_tag}.xyz"
-            xyz_path = os.path.join(out_dir, xyz_name)
+            xyz_path = str(Path(out_dir) / "xyz_files" / xyz_name)
             extra = f"CLUSTER_TYPE={cluster_type} ALTLOC_CASE=3 ALTLOC_LABEL={lab}"
             write_xyz(xyz_path, pdb_id, cluster_index, target_upper, cutoff, origin_kind, centroid_pt, chosen_atoms, center, resolution_angs, extra_comment=extra)
             written.append(xyz_path)
@@ -152,7 +153,7 @@ def build_altloc_files_for_center(
                     continue
                 alt_tag = f"altloc{lab}"
                 xyz_name = f"{base_name_common}_{alt_tag}.xyz"
-                xyz_path = os.path.join(out_dir, xyz_name)
+                xyz_path = str(Path(out_dir) / "xyz_files" / xyz_name)
                 extra = f"CLUSTER_TYPE={cluster_type} ALTLOC_CASE=1 ALTLOC_LABEL={lab}"
                 write_xyz(xyz_path, pdb_id, cluster_index, target_upper, cutoff, origin_kind, centroid_pt, chosen_atoms, origin, resolution_angs, extra_comment=extra)
                 written.append(xyz_path)
@@ -177,7 +178,7 @@ def build_altloc_files_for_center(
                     continue
                 alt_tag = f"altloc{center.element.title()}{lab}"
                 xyz_name = f"{base_name_common}_{alt_tag}.xyz"
-                xyz_path = os.path.join(out_dir, xyz_name)
+                xyz_path = str(Path(out_dir) / "xyz_files" / xyz_name)
                 extra = f"CLUSTER_TYPE={cluster_type} ALTLOC_CASE=2 ALTLOC_LABEL={lab}"
                 write_xyz(xyz_path, pdb_id, cluster_index, target_upper, cutoff, origin_kind, centroid_pt, chosen_atoms, origin, resolution_angs, extra_comment=extra)
                 written.append(xyz_path)

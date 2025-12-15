@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from .models import parse_must_have, MustHaveSpec
 
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("pipeline.config")
 
 
 @dataclass
@@ -79,10 +79,10 @@ def load_config(config_path: str) -> PipelineConfig:
         "include_waters": True,
         "input_mode": "ids",
         "input_data": [],
-        "download_dir": "PDB",
-        "output_dir": "pdb_env_outputs",
-        "phase1_cache": "phase1_cache.json",
-        "log_file": "pdb_env_outputs/pipeline.log",
+        "download_dir": "data/PDB-downloads",
+        "output_dir": "data/output",
+        "phase1_cache": "cache.json",
+        "log_file": "data/pipeline.log",
         "log_level": "INFO"
     }
     
@@ -134,7 +134,7 @@ def load_config(config_path: str) -> PipelineConfig:
 
 
 def print_config_summary(config: PipelineConfig) -> None:
-    """Print configuration summary to logger."""
+    """Log configuration summary to logger."""
     logger.info("="*60)
     logger.info("PIPELINE CONFIGURATION")
     logger.info("="*60)
@@ -165,15 +165,15 @@ def create_example_config(output_path: str = "example_config.json") -> None:
     example = {
         "cutoff": 5.0,
         "target": "NI",
-        "metals_excluded": ["NA", "K"],
-        "must_have": "S,N",
+        "metals_excluded": [],
+        "must_have": "",
         "include_waters": True,
-        "input_mode": "ids",
-        "input_data": ["1ubq", "2qmt", "3hhp"],
-        "download_dir": "PDB",
-        "output_dir": "pdb_env_outputs",
-        "phase1_cache": "phase1_cache.json",
-        "log_file": "pdb_env_outputs/pipeline.log",
+        "input_mode": "list_file",
+        "input_data": ["data/ids.txt"],
+        "download_dir": "data/PDB-downloads",
+        "output_dir": "data/output",
+        "phase1_cache": "data/cache.json",
+        "log_file": "data/pipeline.log",
         "log_level": "INFO",
         "_comments": {
             "input_mode_options": ["ids", "paths", "folder", "list_file", "mixed"],

@@ -14,9 +14,6 @@ from .parser import process_pdb
 from .writer import append_cache
 
 
-logger = logging.getLogger(__name__)
-
-
 def run_pipeline(config_path: str, verbose: bool = False) -> int:
     """
     Run the complete PDB Phase 1 pipeline.
@@ -32,10 +29,11 @@ def run_pipeline(config_path: str, verbose: bool = False) -> int:
         # Load configuration
         config = load_config(config_path)
         
-        # Setup logging
+        # Setup logging and assign the configured logger to the module-level
+        # `logger` so subsequent calls use the same configured logger.
         log_level = logging.DEBUG if verbose else getattr(logging, config.log_level)
-        setup_logger(
-            name="pdb_phase1",
+        logger = setup_logger(
+            name="pipeline",
             log_file=config.log_file,
             level=log_level,
             console=verbose
@@ -76,8 +74,7 @@ def run_pipeline(config_path: str, verbose: bool = False) -> int:
                 with PipelineLogger(logger, pdb_id) as pdb_log:
                     written = process_pdb(
                         pdb_path=source_path,
-                        config=config,
-                        logger=logger
+                        config=config
                     )
                     
                     pdb_log.log_clusters(len(written))
@@ -101,7 +98,7 @@ def run_pipeline(config_path: str, verbose: bool = False) -> int:
         # Update cache
         if cache_runs:
             logger.info("Updating cache file...")
-            append_cache(cache_runs, cache_path=config.phase1_cache)
+            append_cache(cache_runs, config)
         
         # Final summary
         logger.info("")
@@ -162,9 +159,9 @@ Input modes:
   - "mixed": mix of IDs and local paths
 
 Usage:
-  python -m pdb_phase1 config.json
-  python -m pdb_phase1 config.json --verbose
-  python -m pdb_phase1 --example
+  python -m scrape-pdb config.json
+  python -m scrape-pdb config.json --verbose
+  python -m scrape-pdb --example
         """
     )
     
