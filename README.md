@@ -1,6 +1,21 @@
-# PDB Scraper - Phase 1 Pipeline
+# PDB Scraper Pipeline
 
 A modular, production-ready pipeline for extracting metal-centered clusters from PDB files.
+
+**Current capabilities:**
+  1. Download pdb or cif files for each PDB ID from list
+  2. Parse .pdb or .cif files
+  - Extarct clusters
+  - Extract alternate locations
+  3. Generate a separate xyz file for each target atom site
+
+**Future capabilities:**
+  1. Search pdb for candidate IDs rather than from a predetermined list
+  2. Prepare xyz files for DFT relxation
+  - Center target atom at origin
+  - Add hydrogens
+  - Remove floating structures
+  3. Make pipeline modular enough to be able to scrape and parse other databases, like PubChem, to extract xyz files for DFT calculations
 
 ## Features
 
@@ -115,16 +130,16 @@ This creates `example_config.json`:
 {
   "cutoff": 5.0,
   "target": "NI",
-  "metals_excluded": ["NA", "K"],
-  "must_have": "S,N",
+  "metals_excluded": [],
+  "must_have": "",
   "include_waters": true,
-  "input_mode": "ids",
-  "input_data": ["1ubq", "2qmt", "3hhp"],
-  "download_dir": "PDB",
-  "output_dir": "pdb_env_outputs",
-  "phase1_cache": "phase1_cache.json",
-  "log_file": "pdb_env_outputs/pipeline.log",
-  "log_level": "INFO"
+  "input_mode": "list_file",
+  "input_data": ["data/ids.txt"],
+  "download_dir": "data/PDB-downloads",
+  "output_dir": "data/output",
+  "phase1_cache": "data/cache.json",
+  "log_file": "data/pipeline.log",
+  "log_level": "INFO",
 }
 ```
 
@@ -181,7 +196,7 @@ uv run python -m scrape-pdb.main config.json
 ## Output Files
 
 ### 1. XYZ Files
-Located in `output_dir/`, one per cluster:
+Located in `output_dir/xyz_files/`, one per cluster. For example:
 ```
 1ubq_NI_homo_d5.000_cluster1.xyz
 1ubq_NI_multi_homo_d5.000_cluster2_altlocA.xyz
