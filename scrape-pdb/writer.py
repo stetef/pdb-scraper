@@ -84,16 +84,16 @@ def append_altloc_rows(rows: list[list], config: PipelineConfig):
 
 def append_cache(runs: list[dict], config: PipelineConfig):
     try:
-        if os.path.isfile(config.phase1_cache):
-            with open(config.phase1_cache, "r") as f:
+        if os.path.isfile(config.cache):
+            with open(config.cache, "r") as f:
                 prev = json.load(f)
         else:
             prev = {}
         prev_runs = prev.get("runs", [])
         prev_runs.extend(runs)
-        with open(config.phase1_cache, "w") as f:
+        with open(config.cache, "w") as f:
             json.dump({"runs": prev_runs}, f, indent=2)
-        logger.info(f"[+] Updated cache: {config.phase1_cache}")
+        logger.info(f"[+] Updated cache: {config.cache}")
     except Exception as e:
         logger.info(f"[!] Failed to update cache: {e}")
 

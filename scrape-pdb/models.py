@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Data models for PDB Phase 1 pipeline."""
+"""Data models for PDB Scraper pipeline."""
 
 import re
 from dataclasses import dataclass

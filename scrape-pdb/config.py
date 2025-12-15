@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Configuration loading and validation for PDB Phase 1 pipeline."""
+"""Configuration loading and validation for PDB Scraper pipeline."""
 
 import json
 import logging
@@ -28,7 +28,7 @@ class PipelineConfig:
     input_data: list
     download_dir: Path
     output_dir: Path
-    phase1_cache: Path
+    cache: Path
     
     # Logging
     log_file: Path
@@ -81,7 +81,7 @@ def load_config(config_path: str) -> PipelineConfig:
         "input_data": [],
         "download_dir": "data/PDB-downloads",
         "output_dir": "data/output",
-        "phase1_cache": "cache.json",
+        "cache": "cache.json",
         "log_file": "data/pipeline.log",
         "log_level": "INFO"
     }
@@ -127,7 +127,7 @@ def load_config(config_path: str) -> PipelineConfig:
         input_data=config["input_data"],
         download_dir=Path(config["download_dir"]),
         output_dir=Path(config["output_dir"]),
-        phase1_cache=Path(config["phase1_cache"]),
+        cache=Path(config["cache"]),
         log_file=Path(config["log_file"]),
         log_level=config["log_level"].upper()
     )
@@ -172,7 +172,7 @@ def create_example_config(output_path: str = "example_config.json") -> None:
         "input_data": ["data/ids.txt"],
         "download_dir": "data/PDB-downloads",
         "output_dir": "data/output",
-        "phase1_cache": "data/cache.json",
+        "cache": "data/cache.json",
         "log_file": "data/pipeline.log",
         "log_level": "INFO",
         "_comments": {

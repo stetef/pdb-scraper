@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-PDB Phase 1 Pipeline - Metal cluster extraction from PDB files.
+PDB Scraper Pipeline - Metal cluster extraction from PDB files.
 
 This package implements a complete pipeline for:
 - Downloading PDB files from RCSB
@@ -11,7 +11,7 @@ This package implements a complete pipeline for:
 """
 
 __version__ = "1.0.0"
-__author__ = "PDB Phase 1 Team"
+__author__ = "Samantha Tetef"
 
 # Core data models
 from .models import (

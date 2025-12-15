@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Logging configuration for PDB Phase 1 pipeline."""
+"""Logging configuration for PDB Scraper pipeline."""
 
 import logging
 import sys

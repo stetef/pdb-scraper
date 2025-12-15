@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Main orchestration for PDB Phase 1 pipeline."""
+"""Main orchestration for PDB Scraper pipeline."""
 
 import logging
 import sys
@@ -16,7 +16,7 @@ from .writer import append_cache
 
 def run_pipeline(config_path: str, verbose: bool = False) -> int:
     """
-    Run the complete PDB Phase 1 pipeline.
+    Run the complete PDB Scraper pipeline.
     
     Args:
         config_path: Path to JSON configuration file
@@ -39,7 +39,7 @@ def run_pipeline(config_path: str, verbose: bool = False) -> int:
             console=verbose
         )
         
-        logger.info("PDB Phase 1 Pipeline Started")
+        logger.info("PDB Scraper Started")
         logger.info(f"Config loaded from: {config_path}")
         
         # Print configuration
@@ -114,7 +114,7 @@ def run_pipeline(config_path: str, verbose: bool = False) -> int:
         logger.info(f"  - XYZ files: {config.output_dir}/")
         logger.info(f"  - Summary CSV: {config.clusters_csv}")
         logger.info(f"  - AltLoc report: {config.altloc_report}")
-        logger.info(f"  - Cache: {config.phase1_cache}")
+        logger.info(f"  - Cache: {config.cache}")
         logger.info(f"  - Log: {config.log_file}")
         logger.info("="*60)
         
@@ -132,7 +132,7 @@ def run_pipeline(config_path: str, verbose: bool = False) -> int:
 def main():
     """Command-line entry point."""
     parser = argparse.ArgumentParser(
-        description="Phase 1: PDB → XYZ extractor (Spec-compliant v1)",
+        description="Scraper: PDB → XYZ extractor (Spec-compliant v1)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Example config.json:
@@ -146,7 +146,7 @@ Example config.json:
   "input_data": ["1ubq", "2qmt"],
   "download_dir": "PDB",
   "output_dir": "pdb_env_outputs",
-  "phase1_cache": "phase1_cache.json",
+  "cache": "cache.json",
   "log_file": "pdb_env_outputs/pipeline.log",
   "log_level": "INFO"
 }

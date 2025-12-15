@@ -29,9 +29,9 @@ A modular, production-ready pipeline for extracting metal-centered clusters from
 ## Project Structure
 
 ```
-pdb_phase1/
+scrape-pdb/
 ├── __init__.py              # Package initialization
-├── __main__.py              # Entry point for `python -m pdb_phase1`
+├── __main__.py              # Entry point for `python -m scrape-pdb`
 ├── main.py                  # Pipeline orchestration
 ├── config.py                # Configuration loading & validation
 ├── constants.py             # Global contstants
@@ -137,7 +137,7 @@ This creates `example_config.json`:
   "input_data": ["data/ids.txt"],
   "download_dir": "data/PDB-downloads",
   "output_dir": "data/output",
-  "phase1_cache": "data/cache.json",
+  "cache": "data/cache.json",
   "log_file": "data/pipeline.log",
   "log_level": "INFO",
 }

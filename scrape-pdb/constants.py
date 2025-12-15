@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Constants for PDB Phase 1 pipeline."""
+"""Constants for PDB Scraper pipeline."""
 
 from typing import Set
 
@@ -38,10 +38,10 @@ ALL_METALS: Set[str] = {
 }
 
 # Default file/directory names
-DEFAULT_DOWNLOAD_DIR = "PDB"
-DEFAULT_OUTPUT_DIR = "pdb_env_outputs"
-DEFAULT_CACHE_FILE = "phase1_cache.json"
-DEFAULT_LOG_FILE = "pdb_env_outputs/pipeline.log"
+DEFAULT_DOWNLOAD_DIR = "data/PDB-downloads"
+DEFAULT_OUTPUT_DIR = "data/output"
+DEFAULT_CACHE_FILE = "data/cache.json"
+DEFAULT_LOG_FILE = "data/pipeline.log"
 
 # Default processing parameters
 DEFAULT_CUTOFF = 5.0
