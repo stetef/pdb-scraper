@@ -1,0 +1,39 @@
+# Configuration for the PDB Metalloprotein Pipeline
+
+search_parameters:
+  metal_ion: "ZN"
+  coordinating_residues: ["CYS"] # Used for post-filtering, not API search
+  coordination_count: 4          # Used for post-filtering
+  resolution_cutoff: 2.0
+  experimental_method: "X-RAY DIFFRACTION"
+  polymer_type: "Protein"
+
+processing:
+  batch_size: 50
+  parallel_workers: 4 # Note: current implementation is serial
+  rate_limit_delay: 0.2 # seconds between downloads
+  temp_directory: "./temp_cif"
+  max_downloads: 10 # limit downloads for quick test runs (null = unlimited)
+  cutoff: 3.0 # Angstroms, for cluster analysis
+  target: "ZN" # Atom name for the central metal
+  metals_excluded: []
+  must_have: "" # Example: "S,N" or "S>=2"
+  include_waters: true
+
+output:
+  results_database: "./results/clusters.csv"
+  checkpoint_file: "./results/checkpoint.db"
+  log_file: "./results/pipeline.log"
+  save_matching_structures: false
+  matched_structures_dir: "./results/matched_cifs"
+  output_dir: "./results"
+
+validation:
+  coordination_distance_max: 2.8
+  coordination_distance_min: 2.0
+  coord: "4S"
+
+# Legacy/Manual input support
+input_mode: "ids"
+input_data: []
+log_level: "INFO"

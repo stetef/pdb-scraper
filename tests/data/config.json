@@ -1,0 +1,39 @@
+{
+  "search_parameters": {
+    "metal_ion": "ZN",
+    "coordinating_residues": ["CYS"],
+    "coordination_count": 4,
+    "resolution_cutoff": 3.0,
+    "experimental_method": "X-RAY DIFFRACTION",
+    "polymer_type": "Protein"
+  },
+  "processing": {
+    "batch_size": 50,
+    "parallel_workers": 4,
+    "rate_limit_delay": 0.1,
+    "temp_directory": "data/PDB-downloads",
+    "cutoff": 6.0,
+    "target": "ZN",
+    "metals_excluded": [],
+    "max_downloads": null,
+    "must_have": "S",
+    "include_waters": true
+  },
+  "output": {
+    "results_database": "data/output/clusters_summary.csv",
+    "checkpoint_file": "data/output/checkpoint.db",
+    "log_file": "data/pipeline.log",
+    "save_matching_structures": false,
+    "matched_structures_dir": "data/output/matched_cifs",
+    "output_dir": "data/output",
+    "altloc_report_file": null
+  },
+  "validation": {
+    "coordination_distance_max": 2.8,
+    "coordination_distance_min": 2.0
+  },
+  "input_mode": "list_file",
+  "input_data": ["data/ids.txt"],
+  "cache_file": "data/cache.json",
+  "log_level": "INFO"
+}

@@ -1,6 +1,6 @@
 # PDB Scraper Pipeline
 
-A modular, production-ready pipeline for extracting metal-centered clusters from PDB files.
+A modular, production-ready pipeline for searching, downloading, and extracting metal-centered clusters from PDB files.
 
 **Current capabilities:**
   1. Download pdb or cif files for each PDB ID from list
@@ -8,14 +8,14 @@ A modular, production-ready pipeline for extracting metal-centered clusters from
   - Extarct clusters
   - Extract alternate locations
   3. Generate a separate xyz file for each target atom site
+  4. Search the PDB for candidate IDs based on configuration, then manage downloads with checkpointing and periodic cleanup (new)
 
 **Future capabilities:**
-  1. Search pdb for candidate IDs rather than from a predetermined list
-  2. Prepare xyz files for DFT relxation
+  1. Prepare xyz files for DFT relxation
   - Center target atom at origin
   - Add hydrogens
   - Remove floating structures
-  3. Make pipeline modular enough to be able to scrape and parse other databases, like PubChem, to extract xyz files for DFT calculations
+  2. Make pipeline modular enough to be able to scrape and parse other databases, like PubChem, to extract xyz files for DFT calculations
 
 ## Features
 
@@ -23,15 +23,17 @@ A modular, production-ready pipeline for extracting metal-centered clusters from
 - **Comprehensive Logging**: All output goes to log files with structured messages
 - **Context Managers**: Proper resource handling and error management
 - **Type Hints**: Full type annotations for better code quality
-- **Configuration-Driven**: JSON-based configuration with validation
+- **Configuration-Driven**: JSON or YAML configuration with validation
 - **Error Recovery**: Graceful handling of failures with detailed logging
+- **Search Mode (new)**: Use config to query RCSB PDB and process discovered IDs
+- **Checkpointing & Cleanup (new)**: Resume safely and periodically clean temp files based on batch size
 
 ## Project Structure
 
 ```
-scrape-pdb/
+scrape_pdb/
 ├── __init__.py              # Package initialization
-├── __main__.py              # Entry point for `python -m scrape-pdb`
+├── __main__.py              # Entry point for `python -m scrape_pdb`
 ├── main.py                  # Pipeline orchestration
 ├── config.py                # Configuration loading & validation
 ├── constants.py             # Global contstants
@@ -83,13 +85,30 @@ This will create a virtual environment and install all required dependencies fro
 
 ```bash
 # Using uv run (recommended)
-uv run python -m scrape-pdb config.json
+uv run python -m scrape_pdb config.json
 
 # With verbose output
-uv run python -m scrape-pdb config.json --verbose
+uv run python -m scrape_pdb config.json --verbose
 
 # Generate example config
-uv run python -m scrape-pdb --example
+uv run python -m scrape_pdb --example
+```
+
+### Search Mode (Config-Driven)
+
+Enable `input_mode: "search"` in your config to query RCSB PDB based on your criteria, download matching IDs, and process them with checkpointing and periodic cleanup to manage memory. See `search-spec.md` for the full specification.
+
+Highlights:
+- Query by metal ion, resolution cutoff, experimental method, polymer type
+- Optional pre-filtering by metadata (e.g., number of metal ions, residue presence)
+- Respect checkpoint to skip previously processed IDs
+- Rate-limited downloads to `processing.temp_directory` with parallel workers
+- Periodic cleanup of temp downloads after each `processing.batch_size`
+- Results stored and IDs marked as `matched`, `rejected`, or `error`
+
+Example:
+```bash
+uv run python -m scrape_pdb config.yaml --verbose
 ```
 
 #### Alternative: Manual activation
@@ -100,7 +119,7 @@ source .venv/bin/activate  # macOS/Linux
 .venv\Scripts\activate     # Windows
 
 # Run directly
-python -m scrape-pdb config.json
+python -m scrape_pdb config.json
 ```
 
 ### Development
@@ -116,12 +135,31 @@ uv sync --upgrade
 uv run pytest
 ```
 
+#### Testing
+- Tests live under `tests/`.
+- Run the full suite:
+```bash
+uv run pytest tests/
+```
+- Run a specific local pipeline test:
+```bash
+uv run pytest tests/test_run_and_compare_local.py -q -s
+```
+
+#### Dev modules (uv)
+- Development-only dependencies are managed with `uv` and recorded in `pyproject.toml`.
+- Add dev deps:
+```bash
+uv add --dev <package>
+uv sync
+```
+
 ## Quick Start
 
 ### 1. Create a configuration file
 
 ```bash
-uv run python -m scrape-pdb --example
+uv run python -m scrape_pdb --example
 ```
 
 This creates `example_config.json`:
@@ -147,13 +185,54 @@ This creates `example_config.json`:
 
 ```bash
 # Basic usage
-uv run python -m scrape-pdb config.json
+uv run python -m scrape_pdb config.json
 
 # With verbose console output
-uv run python -m scrape-pdb config.json --verbose
+uv run python -m scrape_pdb config.json --verbose
 
 # Or use the main module directly
-uv run python -m scrape-pdb.main config.json
+uv run python -m scrape_pdb.main config.json
+```
+
+### Search Mode Configuration Example (YAML)
+
+You can provide a YAML config to enable search mode (see `search-spec.md`).
+
+```yaml
+search_parameters:
+  metal_ion: "ZN"
+  coordinating_residues: ["CYS"]
+  coordination_count: 4
+  resolution_cutoff: 2.0
+  experimental_method: "X-RAY DIFFRACTION"
+  polymer_type: "Protein"
+
+processing:
+  batch_size: 100
+  parallel_workers: 4
+  rate_limit_delay: 0.1
+  temp_directory: "./data/PDB-downloads"
+
+output:
+  results_database: "./data/results/zn_cys4.db"
+  checkpoint_file: "./data/results/checkpoint.db"
+  log_file: "./data/pipeline.log"
+  save_matching_structures: false
+  matched_structures_dir: "./data/results/matched_cifs"
+
+validation:
+  coordination_distance_max: 2.8
+  coordination_distance_min: 2.0
+  geometric_criteria: {}
+  coord: "4S"
+
+# Enable search mode (the pipeline will perform the query and process IDs)
+input_mode: "search"
+```
+
+Run it:
+```bash
+uv run python -m scrape_pdb examples/config.search.yaml
 ```
 
 ## Configuration Reference
@@ -175,6 +254,10 @@ uv run python -m scrape-pdb.main config.json
 - `"ALL:S,O"` - Require both sulfur AND oxygen
 - `"S>=2,N>=1"` - Require at least 2 sulfurs and 1 nitrogen
 
+### Validation Parameters
+
+- `coord` (string or list): Allowed COORD strings (e.g., `4S`, `1N3S`). Only clusters/XYZ with a matching COORD are retained; others are skipped (altloc XYZ files are removed if filtered out). Omit or set to `null` to accept all.
+
 ### Input Modes
 
 | Mode | Description | `input_data` Format |
@@ -184,6 +267,7 @@ uv run python -m scrape-pdb.main config.json
 | `folder` | Scan directory | Single folder path: `["./pdbs/"]` |
 | `list_file` | Read IDs from file | Path to text file: `["pdb_list.txt"]` |
 | `mixed` | Mix of IDs and paths | Combined list |
+| `search` | Discover IDs via RCSB query | Use search parameters in config; downloads managed with checkpointing and cleanup (new) |
 
 ### Logging Levels
 
@@ -217,6 +301,36 @@ Located in `output_dir/xyz_files/`, one per cluster. For example:
 
 ### 5. Log File
 `output_dir/pipeline.log` contains all pipeline activity.
+
+## Search & Processing Architecture (Overview)
+
+For a detailed specification of search behavior and processing phases, see `search-spec.md`.
+- Phase 1: RCSB search (metadata pre-filtering planned), checkpoint init
+- Phase 2: Stream processing with status tracking, download → parse → analyze → store → cleanup
+- Parallel workers with global rate limiting (planned); periodic batch checkpointing
+- Phase 3: Results aggregation, reporting, and optional visualization export
+
+See the implementation details and roadmap in [search-spec.md](search-spec.md) under "Implementation Status".
+
+## Implementation Status
+
+- **Implemented:** RCSB search mode; coord-based filtering of clusters/XYZ retention (`validation.coord`); checkpoint skip of matched/rejected with retry of error/in_progress; download fallbacks (.pdb → .pdb.gz → .cif.gz) into `processing.temp_directory`; batch cleanup after `processing.batch_size`; serial processing; outputs (clusters summary CSV, altloc report CSV, cache.json); optional `processing.max_downloads` for tests.
+- **Planned:** Parallel workers with coordinated rate limiting, metadata pre-filtering before parse, matched CIF retention/export, additional output formats/visualizations.
+- Details: see [search-spec.md](search-spec.md) "Implementation Status" section.
+
+## Examples
+
+- Example search-mode config: see [examples/config.search.yaml](examples/config.search.yaml).
+- Customize it by adjusting:
+  - **search_parameters**: set `metal_ion`, `resolution_cutoff`, `experimental_method`, `polymer_type`, and optional residue criteria.
+  - **processing**: tune `batch_size`, `parallel_workers`, `rate_limit_delay`, `temp_directory`, analysis `cutoff`, and `target` metal. 
+  - **output**: choose `results_database`, `checkpoint_file`, `log_file`, `matched_structures_dir`, and `output_dir`.
+  - **validation**: set coordination distance thresholds and optional geometric criteria.
+
+Run the example:
+```bash
+uv run python -m scrape_pdb examples/config.search.yaml --verbose
+```
 
 
 ## Best Practices

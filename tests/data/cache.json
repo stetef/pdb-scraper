@@ -1,0 +1,76 @@
+{
+  "runs": [
+    {
+      "pdb_path": "data/PDB-downloads/9qqt.cif",
+      "pdb_id": "9qqt",
+      "target": "NI",
+      "cutoff": 10.0,
+      "clusters": [
+        {
+          "xyz_path": "data/output/xyz_files/9qqt_NI_homo_d10.00_cluster1_altlocLIGA.xyz"
+        },
+        {
+          "xyz_path": "data/output/xyz_files/9qqt_NI_homo_d10.00_cluster1_altlocLIGB.xyz"
+        },
+        {
+          "xyz_path": "data/output/xyz_files/9qqt_NI_homo_d10.00_cluster1_altlocLIGC.xyz"
+        },
+        {
+          "xyz_path": "data/output/xyz_files/9qqt_NI_homo_d10.00_cluster2_altlocLIGA.xyz"
+        },
+        {
+          "xyz_path": "data/output/xyz_files/9qqt_NI_homo_d10.00_cluster2_altlocLIGB.xyz"
+        },
+        {
+          "xyz_path": "data/output/xyz_files/9qqt_NI_homo_d10.00_cluster2_altlocLIGC.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_path": "data/PDB-downloads/9qr3.cif",
+      "pdb_id": "9qr3",
+      "target": "NI",
+      "cutoff": 10.0,
+      "clusters": [
+        {
+          "xyz_path": "data/output/xyz_files/9qr3_NI_homo_d10.00_cluster1.xyz"
+        },
+        {
+          "xyz_path": "data/output/xyz_files/9qr3_NI_homo_d10.00_cluster2.xyz"
+        },
+        {
+          "xyz_path": "data/output/xyz_files/9qr3_NI_homo_d10.00_cluster3.xyz"
+        },
+        {
+          "xyz_path": "data/output/xyz_files/9qr3_NI_homo_d10.00_cluster4.xyz"
+        },
+        {
+          "xyz_path": "data/output/xyz_files/9qr3_NI_homo_d10.00_cluster5.xyz"
+        },
+        {
+          "xyz_path": "data/output/xyz_files/9qr3_NI_homo_d10.00_cluster6.xyz"
+        },
+        {
+          "xyz_path": "data/output/xyz_files/9qr3_NI_homo_d10.00_cluster7.xyz"
+        },
+        {
+          "xyz_path": "data/output/xyz_files/9qr3_NI_homo_d10.00_cluster8.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_path": "data/PDB-downloads/9qqt.cif",
+      "pdb_id": "9qqt",
+      "target": "ZN",
+      "cutoff": 6.0,
+      "clusters": []
+    },
+    {
+      "pdb_path": "data/PDB-downloads/9qr3.cif",
+      "pdb_id": "9qr3",
+      "target": "ZN",
+      "cutoff": 6.0,
+      "clusters": []
+    }
+  ]
+}

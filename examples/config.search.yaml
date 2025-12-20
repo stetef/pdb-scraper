@@ -1,0 +1,60 @@
+# Example search-mode configuration for PDB Scraper Pipeline
+#
+# Common fields to customize for new searches:
+# - search_parameters:
+#     metal_ion: target metal (e.g., "ZN", "FE", "MG")
+#     coordinating_residues: residue filters used post-search (e.g., ["CYS"], ["HIS", "CYS"]) 
+#     coordination_count: exact coordinating residue count to validate (e.g., 4)
+#     resolution_cutoff: max structure resolution (Å), lower = higher quality
+#     experimental_method: e.g., "X-RAY DIFFRACTION" or "ALL"
+#     polymer_type: e.g., "Protein", "DNA", or "ALL"
+# - processing:
+#     batch_size: how many structures to process before checkpoint/cleanup
+#     parallel_workers: number of concurrent downloads/parses (implementation-dependent)
+#     rate_limit_delay: seconds between API requests (avoid rate limits)
+#     temp_directory: where CIFs are downloaded; periodically cleaned
+#     cutoff/target/must_have/include_waters: analysis parameters for clustering
+# - output:
+#     results_database/checkpoint_file/log_file/matched_structures_dir/output_dir
+# - validation:
+#     coordination_distance_min/max and optional geometric_criteria
+# - input_mode:
+#     set to "search" to enable query-driven discovery; `input_data` is ignored
+
+search_parameters:
+  metal_ion: "ZN"
+  coordinating_residues: ["CYS"]
+  coordination_count: 4
+  resolution_cutoff: 2.0
+  experimental_method: "X-RAY DIFFRACTION"
+  polymer_type: "Protein"
+
+processing:
+  batch_size: 50
+  parallel_workers: 4
+  rate_limit_delay: 0.1
+  temp_directory: "./data/PDB-downloads"
+  max_downloads: 500
+  cutoff: 3.0
+  target: "ZN"
+  metals_excluded: []
+  must_have: ""
+  include_waters: true
+
+output:
+  results_database: "./data/results/zn_cys4.db"
+  checkpoint_file: "./data/results/checkpoint.db"
+  log_file: "./data/pipeline.log"
+  save_matching_structures: false
+  matched_structures_dir: "./data/results/matched_cifs"
+  output_dir: "./data/output"
+
+validation:
+  coordination_distance_max: 2.8
+  coordination_distance_min: 2.0
+  geometric_criteria: {}
+  coord: "4S"
+
+# Enable search mode (the pipeline will perform the query and process IDs)
+input_mode: "search"
+log_level: "INFO"

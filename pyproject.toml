@@ -1,11 +1,37 @@
 [project]
 name = "scrape-pdb"
 version = "0.1.0"
-description = "Add your description here"
+description = "Search and download PDB files."
 readme = "README.md"
 requires-python = ">=3.12"
+
 dependencies = [
     "biopython>=1.86",
     "numpy>=2.3.5",
+    "requests>=2.32.5",
     "tqdm>=4.67.1",
 ]
+
+[project.optional-dependencies]
+dev = [
+    "pydantic",
+    "pyyaml",
+    "pytest",
+    "black",
+    "isort",
+    "flake8",
+    "pre-commit",
+]
+
+[tool.black]
+line-length = 120
+target-version = ['py312']
+
+[tool.isort]
+profile = "black"
+line_length = 120
+
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
