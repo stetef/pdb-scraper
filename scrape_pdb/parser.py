@@ -11,7 +11,7 @@ from Bio.PDB.MMCIF2Dict import MMCIF2Dict
 from .altloc import group_by_id, build_altloc_files_for_center
 from .models import Atom
 from .constants import ALL_METALS
-from .cluster import determine_cluster_type, select_neighbors_union, select_neighbors_from, apply_water_toggle
+from .cluster import determine_cluster_type, select_neighbors_union, select_neighbors_from, apply_water_toggle, select_coordinating_neighbors
 from .utils import _slice, connected_components, centroid
 from .config import PipelineConfig
 from .writer import ensure_csv_headers, write_altloc_report_header, write_clusters_csv_row, append_altloc_rows, write_xyz
@@ -334,8 +334,8 @@ def process_pdb(
         c_centroid = centroid([c.coord for c in centers])
 
         # Build selection universe from atoms (non-H; waters default included, soft exclusion later)
-        # For union: neighbors are atoms within cutoff of ANY center metal
-        selected_union = select_neighbors_union(atoms, centers, config.cutoff)
+        # For union: neighbors are atoms within selection_radius of ANY center metal
+        selected_union = select_neighbors_union(atoms, centers, config.selection_radius)
 
         # Create a base name common (without altloc tag)
         base_name_common = f"{base_id}_{target_upper}_{comp_type}_d{config.cutoff:.2f}_cluster{cluster_counter}"
@@ -353,7 +353,7 @@ def process_pdb(
             center=center_for_alt,
             selected_atoms_raw=selected_union,
             raw_groups=raw_groups,
-            cutoff=config.cutoff,
+            cutoff=config.selection_radius,
             out_dir=config.output_dir,
             base_name_common=base_name_common,
             origin_kind=("centroid" if len(centers)>1 else "single_center"),
@@ -365,7 +365,10 @@ def process_pdb(
             include_waters=True,  # waters included by default; soft toggle handled in selection function below
             must_have=config.must_have,
             csv_common={"PDB": base_id},
-            metals_in_comp=comp_metals
+            metals_in_comp=comp_metals,
+            coord_distance_min=config.validation.coordination_distance_min,
+            coord_distance_max=config.validation.coordination_distance_max,
+            coord_filters=config.coord_filters
         )
 
         if alt_written:
@@ -377,14 +380,19 @@ def process_pdb(
                 # Build neighbor sets for geometry per-center
                 if comp_type == "multi_homo":
                     for idx_c, c in enumerate(centers, start=1):
-                        neigh = select_neighbors_from(c, selected_union, config.cutoff)
-                        neigh = apply_water_toggle(neigh, include_waters=True)
-                        # Exclude H already in toggle; good
-                        # Must-have filter per center
-                        if not config.must_have.passes([a for a in neigh if a.serial != c.serial]):
+                        # Get all neighbors within selection_radius for must_have filter
+                        neigh_all = select_neighbors_from(c, selected_union, config.selection_radius)
+                        neigh_all = apply_water_toggle(neigh_all, include_waters=True)
+                        # Must-have filter on all cluster atoms
+                        if not config.must_have.passes(neigh_all):
                             continue
-                        geom, metrics, flags = classify_geometry(c, [a for a in neigh if a.serial != c.serial])
-                        coord = coord_string([a for a in neigh if a.serial != c.serial])
+                        # Get coordinating neighbors for geometry and coord filter
+                        coord_neigh = select_coordinating_neighbors(c, selected_union,
+                                                                    config.validation.coordination_distance_min,
+                                                                    config.validation.coordination_distance_max)
+                        coord_neigh = apply_water_toggle(coord_neigh, include_waters=True)
+                        geom, metrics, flags = classify_geometry(c, coord_neigh)
+                        coord = coord_string(coord_neigh)
                         if config.coord_filters and coord not in config.coord_filters:
                             try:
                                 Path(path).unlink(missing_ok=True)
@@ -404,12 +412,18 @@ def process_pdb(
                 else:
                     # homo or multi_hetero → one row per cluster focused on the target metal
                     c = center_for_alt
-                    neigh = select_neighbors_from(c, selected_union, config.cutoff)
-                    neigh = apply_water_toggle(neigh, include_waters=True)
-                    if not config.must_have.passes([a for a in neigh if a.serial != c.serial]):
+                    # Get all neighbors within selection_radius for must_have filter
+                    neigh_all = select_neighbors_from(c, selected_union, config.selection_radius)
+                    neigh_all = apply_water_toggle(neigh_all, include_waters=True)
+                    if not config.must_have.passes(neigh_all):
                         continue
-                    geom, metrics, flags = classify_geometry(c, [a for a in neigh if a.serial != c.serial])
-                    coord = coord_string([a for a in neigh if a.serial != c.serial])
+                    # Get coordinating neighbors for geometry and coord filter
+                    coord_neigh = select_coordinating_neighbors(c, selected_union,
+                                                                config.validation.coordination_distance_min,
+                                                                config.validation.coordination_distance_max)
+                    coord_neigh = apply_water_toggle(coord_neigh, include_waters=True)
+                    geom, metrics, flags = classify_geometry(c, coord_neigh)
+                    coord = coord_string(coord_neigh)
                     if config.coord_filters and coord not in config.coord_filters:
                         try:
                             Path(path).unlink(missing_ok=True)
@@ -449,15 +463,20 @@ def process_pdb(
             if comp_type == "multi_homo":
                 wrote_xyz = False
                 for idx_c, c in enumerate(centers, start=1):
-                    neigh = select_neighbors_from(c, selected, config.cutoff)
-                    if not config.must_have.passes([a for a in neigh if a.serial != c.serial]):
+                    # Get all neighbors within selection_radius for must_have filter
+                    neigh_all = select_neighbors_from(c, selected, config.selection_radius)
+                    if not config.must_have.passes(neigh_all):
                         continue
-                    geom, metrics, flags = classify_geometry(c, [a for a in neigh if a.serial != c.serial])
-                    coord = coord_string([a for a in neigh if a.serial != c.serial])
+                    # Get coordinating neighbors for geometry and coord filter
+                    coord_neigh = select_coordinating_neighbors(c, selected,
+                                                                config.validation.coordination_distance_min,
+                                                                config.validation.coordination_distance_max)
+                    geom, metrics, flags = classify_geometry(c, coord_neigh)
+                    coord = coord_string(coord_neigh)
                     if config.coord_filters and coord not in config.coord_filters:
                         continue
                     if not wrote_xyz:
-                        write_xyz(xyz_path, base_id, cluster_counter, target_upper, config.cutoff,
+                        write_xyz(xyz_path, base_id, cluster_counter, target_upper, config.selection_radius,
                                   ("centroid" if len(centers)>1 else "single_center"), c_centroid,
                                   selected, origin_atom, resolution_angs, extra_comment=extra)
                         written_paths.append(xyz_path)
@@ -472,14 +491,19 @@ def process_pdb(
                     ], config)
             else:
                 c = center_for_alt
-                neigh = select_neighbors_from(c, selected, config.cutoff)
-                if not config.must_have.passes([a for a in neigh if a.serial != c.serial]):
+                # Get all neighbors within selection_radius for must_have filter
+                neigh_all = select_neighbors_from(c, selected, config.selection_radius)
+                if not config.must_have.passes(neigh_all):
                     continue
-                geom, metrics, flags = classify_geometry(c, [a for a in neigh if a.serial != c.serial])
-                coord = coord_string([a for a in neigh if a.serial != c.serial])
+                # Get coordinating neighbors for geometry and coord filter
+                coord_neigh = select_coordinating_neighbors(c, selected,
+                                                            config.validation.coordination_distance_min,
+                                                            config.validation.coordination_distance_max)
+                geom, metrics, flags = classify_geometry(c, coord_neigh)
+                coord = coord_string(coord_neigh)
                 if config.coord_filters and coord not in config.coord_filters:
                     continue
-                write_xyz(xyz_path, base_id, cluster_counter, target_upper, config.cutoff,
+                write_xyz(xyz_path, base_id, cluster_counter, target_upper, config.selection_radius,
                           ("centroid" if len(centers)>1 else "single_center"), c_centroid,
                           selected, origin_atom, resolution_angs, extra_comment=extra)
                 written_paths.append(xyz_path)
@@ -505,7 +529,7 @@ def process_pdb(
         def in_union_xyz(x: float, y: float, z: float) -> bool:
             for cx, cy, cz in ccoords:
                 dx = x - cx; dy = y - cy; dz = z - cz
-                if dx*dx + dy*dy + dz*dz <= config.cutoff*config.cutoff:
+                if dx*dx + dy*dy + dz*dz <= config.selection_radius*config.selection_radius:
                     return True
             return False
         for a in iter_altloc_metal_records(pdb_path, metal_set):

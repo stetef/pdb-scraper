@@ -39,3 +39,25 @@ def apply_water_toggle(atoms: list[Atom], include_waters: bool) -> list[Atom]:
         return [a for a in atoms if a.element.upper() != "H"]
     else:
         return [a for a in atoms if a.element.upper() != "H" and a.resname.upper() not in ("HOH","WAT")]
+
+def select_coordinating_neighbors(center: Atom, atoms: list[Atom], min_dist: float, max_dist: float) -> list[Atom]:
+    """
+    Select atoms that are within coordination distance of the center metal.
+    
+    Args:
+        center: Central metal atom
+        atoms: List of potential coordinating atoms
+        min_dist: Minimum coordination distance (Angstroms)
+        max_dist: Maximum coordination distance (Angstroms)
+    
+    Returns:
+        List of atoms within coordination distance range
+    """
+    coordinating = []
+    for a in atoms:
+        if a.serial == center.serial:
+            continue
+        d = dist(a.coord, center.coord)
+        if min_dist <= d <= max_dist:
+            coordinating.append(a)
+    return coordinating

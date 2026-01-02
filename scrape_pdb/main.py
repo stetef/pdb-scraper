@@ -4,7 +4,6 @@
 import logging
 import sys
 from pathlib import Path
-from typing import List, Dict
 import argparse
 
 from .config import load_config, print_config_summary, create_example_config
@@ -65,9 +64,9 @@ def run_pipeline(config_path: str, verbose: bool = False) -> int:
         logger.info(f"Found {len(sources)} PDB file(s) to process")
         
         # Process each PDB
-        all_written: List[str] = []
-        cache_runs: List[Dict] = []
-        failed_pdbs: List[str] = []
+        all_written: list[str] = []
+        cache_runs: list[dict] = []
+        failed_pdbs: list[str] = []
         
         processed_since_cleanup = 0
         for idx, source_path in enumerate(tqdm(sources, desc="Processing PDBs"), 1):
@@ -94,6 +93,7 @@ def run_pipeline(config_path: str, verbose: bool = False) -> int:
                         "pdb_id": pdb_id,
                         "target": config.target,
                         "cutoff": config.cutoff,
+                        "selection_radius": config.selection_radius,
                         "clusters": [{"xyz_path": p} for p in written],
                     }
                     cache_runs.append(run)

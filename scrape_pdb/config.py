@@ -24,7 +24,8 @@ class ProcessingConfig(BaseModel):
     parallel_workers: int = 4
     rate_limit_delay: float = 0.1
     temp_directory: Path = Path("./temp_cif")
-    cutoff: float = 3.0
+    cutoff: float = 3.0  # Metal-to-metal clustering distance
+    selection_radius: Optional[float] = None  # Atom selection radius (defaults to cutoff if not specified)
     target: str = "ZN"
     metals_excluded: List[str] = Field(default_factory=list)
     # Maximum number of files to download during a run (None = unlimited)
@@ -106,6 +107,11 @@ class PipelineConfig(BaseModel):
         return self.processing.cutoff
     
     @property
+    def selection_radius(self) -> float:
+        """Atom selection radius around metal centers (defaults to cutoff if not specified)."""
+        return self.processing.selection_radius if self.processing.selection_radius is not None else self.processing.cutoff
+    
+    @property
     def target(self) -> str:
         return self.processing.target
         
@@ -169,7 +175,8 @@ def print_config_summary(config: PipelineConfig) -> None:
     logger.info("="*60)
     logger.info("PIPELINE CONFIGURATION")
     logger.info("="*60)
-    logger.info(f"Cutoff distance: {config.cutoff} Å")
+    logger.info(f"Metal clustering cutoff: {config.cutoff} Å")
+    logger.info(f"Atom selection radius: {config.selection_radius} Å")
     logger.info(f"Target HETATM: {config.target}")
     logger.info(f"Search Metal: {config.search_parameters.metal_ion}")
     

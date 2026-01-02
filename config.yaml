@@ -9,24 +9,25 @@ search_parameters:
   polymer_type: "Protein"
 
 processing:
-  batch_size: 50
+  batch_size: 20
   parallel_workers: 4 # Note: current implementation is serial
   rate_limit_delay: 0.2 # seconds between downloads
-  temp_directory: "./temp_cif"
-  max_downloads: 10 # limit downloads for quick test runs (null = unlimited)
-  cutoff: 3.0 # Angstroms, for cluster analysis
+  temp_directory: "./temp_downloads"
+  max_downloads: 40 # limit downloads for quick test runs (null = unlimited)
+  cutoff: 3.0 # Angstroms, metal-to-metal clustering distance
+  selection_radius: 6.0 # Angstroms, radius for selecting atoms around metals (includes full residues)
   target: "ZN" # Atom name for the central metal
   metals_excluded: []
-  must_have: "" # Example: "S,N" or "S>=2"
+  must_have: "S>=4" # Example: "S,N" or "S>=2"
   include_waters: true
 
 output:
-  results_database: "./results/clusters.csv"
-  checkpoint_file: "./results/checkpoint.db"
-  log_file: "./results/pipeline.log"
+  results_database: "./data/clusters.csv"
+  checkpoint_file: "./data/checkpoint.db"
+  log_file: "./data/pipeline.log"
   save_matching_structures: false
-  matched_structures_dir: "./results/matched_cifs"
-  output_dir: "./results"
+  matched_structures_dir: "./data/matched_cifs"
+  output_dir: "./data"
 
 validation:
   coordination_distance_max: 2.8
@@ -34,6 +35,6 @@ validation:
   coord: "4S"
 
 # Legacy/Manual input support
-input_mode: "ids"
-input_data: []
+input_mode: "list_file"
+input_data: ["example-ids.txt"] # List of PDB IDs or path to file with IDs
 log_level: "INFO"

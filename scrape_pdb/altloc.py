@@ -7,8 +7,8 @@ import os
 
 from .models import Atom, MustHaveSpec
 from .writer import write_xyz
-from .cluster import select_neighbors_from, apply_water_toggle
-from .geometry import classify_geometry
+from .cluster import select_neighbors_from, apply_water_toggle, select_coordinating_neighbors
+from .geometry import classify_geometry, coord_string
 from .utils import dist
 
 import logging
@@ -43,7 +43,7 @@ def build_altloc_files_for_center(
         selected_atoms_raw: list[Atom],
         raw_groups: dict[tuple[str,str,str,str], dict[str,Atom]],
         cutoff: float,
-    out_dir: Path | str,
+        out_dir: Path | str,
         base_name_common: str,
         origin_kind: str,
         centroid_pt: tuple[float,float,float],
@@ -54,7 +54,10 @@ def build_altloc_files_for_center(
         include_waters: bool,
         must_have: MustHaveSpec,
         csv_common: dict[str, str],
-        metals_in_comp: list[Atom]) -> list[str]:
+        metals_in_comp: list[Atom],
+        coord_distance_min: float,
+        coord_distance_max: float,
+        coord_filters: Optional[set[str]]) -> list[str]:
     """
     Implements Step 6 Situations 1–3 around the chosen center.
     Returns list of written XYZ file paths.
@@ -107,9 +110,17 @@ def build_altloc_files_for_center(
             # Apply H/water toggle
             chosen_atoms = apply_water_toggle(chosen_atoms, include_waters=True)  # waters included by default; soft-exclusion handled upstream
 
-            # Must-have filter on neighbors (exclude center for counts)
+            # Must-have filter on all cluster atoms (exclude center for counts)
             if not must_have.passes([a for a in chosen_atoms if a.serial != center.serial]):
                 continue
+            
+            # Coord filter on coordinating neighbors only
+            if coord_filters:
+                coord_neigh = select_coordinating_neighbors(center, chosen_atoms, coord_distance_min, coord_distance_max)
+                coord_neigh = apply_water_toggle(coord_neigh, include_waters=True)
+                coord_str = coord_string(coord_neigh)
+                if coord_str not in coord_filters:
+                    continue
 
             alt_tag = f"altlocLIG{lab}"
             xyz_name = f"{base_name_common}_{alt_tag}.xyz"
@@ -148,9 +159,16 @@ def build_altloc_files_for_center(
                 chosen_atoms = [a for a in chosen_atoms if dist(a.coord, origin.coord) <= cutoff or a.serial == origin.serial]
                 # Apply toggles
                 chosen_atoms = apply_water_toggle(chosen_atoms, include_waters=True)
-                # Must-have on neighbors (exclude center)
+                # Must-have on all cluster atoms (exclude center)
                 if not must_have.passes([a for a in chosen_atoms if a.serial != origin.serial]):
                     continue
+                # Coord filter on coordinating neighbors only
+                if coord_filters:
+                    coord_neigh = select_coordinating_neighbors(origin, chosen_atoms, coord_distance_min, coord_distance_max)
+                    coord_neigh = apply_water_toggle(coord_neigh, include_waters=True)
+                    coord_str = coord_string(coord_neigh)
+                    if coord_str not in coord_filters:
+                        continue
                 alt_tag = f"altloc{lab}"
                 xyz_name = f"{base_name_common}_{alt_tag}.xyz"
                 xyz_path = str(Path(out_dir) / "xyz_files" / xyz_name)
@@ -174,8 +192,16 @@ def build_altloc_files_for_center(
                     origin = center
                 chosen_atoms = [a for a in chosen_atoms if dist(a.coord, origin.coord) <= cutoff or a.serial == origin.serial]
                 chosen_atoms = apply_water_toggle(chosen_atoms, include_waters=True)
+                # Must-have on all cluster atoms
                 if not must_have.passes([a for a in chosen_atoms if a.serial != origin.serial]):
                     continue
+                # Coord filter on coordinating neighbors only
+                if coord_filters:
+                    coord_neigh = select_coordinating_neighbors(origin, chosen_atoms, coord_distance_min, coord_distance_max)
+                    coord_neigh = apply_water_toggle(coord_neigh, include_waters=True)
+                    coord_str = coord_string(coord_neigh)
+                    if coord_str not in coord_filters:
+                        continue
                 alt_tag = f"altloc{center.element.title()}{lab}"
                 xyz_name = f"{base_name_common}_{alt_tag}.xyz"
                 xyz_path = str(Path(out_dir) / "xyz_files" / xyz_name)

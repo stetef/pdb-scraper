@@ -34,8 +34,8 @@ processing:
   parallel_workers: 4
   rate_limit_delay: 0.1
   temp_directory: "./data/PDB-downloads"
-  max_downloads: 500
-  cutoff: 3.0
+  max_downloads: 100
+  cutoff: 6.0
   target: "ZN"
   metals_excluded: []
   must_have: ""

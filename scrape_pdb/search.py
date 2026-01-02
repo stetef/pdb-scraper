@@ -66,7 +66,7 @@ def search_pdb(config: PipelineConfig) -> list[str]:
             "parameters": {
                 "attribute": "entity_poly.rcsb_entity_polymer_type",
                 "operator": "exact_match",
-                "value": params.polymer_type
+                "value": params.polymer_type.upper()
             }
         })
 
