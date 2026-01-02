@@ -1,25 +1,38 @@
-# Example search-mode configuration for PDB Scraper Pipeline
+# Example search-mode config for PDB Scraper
 #
-# Common fields to customize for new searches:
+# Common fields to customize:
 # - search_parameters:
-#     metal_ion: target metal (e.g., "ZN", "FE", "MG")
-#     coordinating_residues: residue filters used post-search (e.g., ["CYS"], ["HIS", "CYS"]) 
-#     coordination_count: exact coordinating residue count to validate (e.g., 4)
-#     resolution_cutoff: max structure resolution (Å), lower = higher quality
-#     experimental_method: e.g., "X-RAY DIFFRACTION" or "ALL"
-#     polymer_type: e.g., "Protein", "DNA", or "ALL"
+#     metal_ion: target metal
+#       e.g., "ZN", "FE", "MG"
+#     coordinating_residues: residue filters
+#       e.g., ["CYS"], ["HIS", "CYS"]
+#     coordination_count: exact count
+#       e.g., 4
+#     resolution_cutoff: max resolution (Å)
+#       lower = higher quality
+#     experimental_method: method filter
+#       e.g., "X-RAY DIFFRACTION" or "ALL"
+#     polymer_type: RCSB polymer filter
+#       e.g., "polypeptide(L)"
+#       Set to null for all types
 # - processing:
-#     batch_size: how many structures to process before checkpoint/cleanup
-#     parallel_workers: number of concurrent downloads/parses (implementation-dependent)
-#     rate_limit_delay: seconds between API requests (avoid rate limits)
-#     temp_directory: where CIFs are downloaded; periodically cleaned
-#     cutoff/target/must_have/include_waters: analysis parameters for clustering
+#     batch_size: structures per batch
+#     parallel_workers: concurrent workers
+#     rate_limit_delay: API delay (sec)
+#     temp_directory: CIF download location
+#     cutoff/target/must_have/include_waters:
+#       clustering parameters
 # - output:
-#     results_database/checkpoint_file/log_file/matched_structures_dir/output_dir
+#     results_database: output DB path
+#     checkpoint_file: checkpoint DB path
+#     log_file: log file path
+#     matched_structures_dir: CIF save dir
+#     output_dir: results output dir
 # - validation:
-#     coordination_distance_min/max and optional geometric_criteria
+#     coordination_distance_min/max: ranges
+#     geometric_criteria: optional
 # - input_mode:
-#     set to "search" to enable query-driven discovery; `input_data` is ignored
+#     "search" for query-driven discovery
 
 search_parameters:
   metal_ion: "ZN"
@@ -27,7 +40,7 @@ search_parameters:
   coordination_count: 4
   resolution_cutoff: 2.0
   experimental_method: "X-RAY DIFFRACTION"
-  polymer_type: "Protein"
+  polymer_type: null  # null = all; or use "polypeptide(L)"
 
 processing:
   batch_size: 50
@@ -35,10 +48,11 @@ processing:
   rate_limit_delay: 0.1
   temp_directory: "./data/PDB-downloads"
   max_downloads: 100
-  cutoff: 6.0
+  cutoff: 3.0
+  selection_radius: 6.0
   target: "ZN"
   metals_excluded: []
-  must_have: ""
+  must_have: "S>=4"
   include_waters: true
 
 output:
@@ -52,9 +66,8 @@ output:
 validation:
   coordination_distance_max: 2.8
   coordination_distance_min: 2.0
-  geometric_criteria: {}
   coord: "4S"
 
-# Enable search mode (the pipeline will perform the query and process IDs)
+# Enable search mode
 input_mode: "search"
 log_level: "INFO"

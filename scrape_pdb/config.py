@@ -17,7 +17,7 @@ class SearchParameters(BaseModel):
     coordination_count: Optional[int] = None
     resolution_cutoff: Optional[float] = None
     experimental_method: str = "ALL"
-    polymer_type: str = "Protein"
+    polymer_type: Optional[str] = None  # None means all polymer types
 
 class ProcessingConfig(BaseModel):
     batch_size: int = 100

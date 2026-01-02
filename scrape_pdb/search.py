@@ -59,7 +59,7 @@ def search_pdb(config: PipelineConfig) -> list[str]:
         })
 
     # 4. Polymer Type
-    if params.polymer_type and params.polymer_type.upper() != "ALL":
+    if params.polymer_type is not None and params.polymer_type.upper() != "ALL":
         query_nodes.append({
             "type": "terminal",
             "service": "text",
