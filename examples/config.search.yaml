@@ -4,10 +4,6 @@
 # - search_parameters:
 #     metal_ion: target metal
 #       e.g., "ZN", "FE", "MG"
-#     coordinating_residues: residue filters
-#       e.g., ["CYS"], ["HIS", "CYS"]
-#     coordination_count: exact count
-#       e.g., 4
 #     resolution_cutoff: max resolution (Å)
 #       lower = higher quality
 #     experimental_method: method filter
@@ -30,24 +26,22 @@
 #     output_dir: results output dir
 # - validation:
 #     coordination_distance_min/max: ranges
-#     geometric_criteria: optional
+#     coord: coordination string
 # - input_mode:
 #     "search" for query-driven discovery
 
 search_parameters:
   metal_ion: "ZN"
-  coordinating_residues: ["CYS"]
-  coordination_count: 4
-  resolution_cutoff: 2.0
+  resolution_cutoff: 2.0  #angstroms
   experimental_method: "X-RAY DIFFRACTION"
-  polymer_type: null  # null = all; or use "polypeptide(L)"
+  polymer_type: null  # null := all; or use "polypeptide(L)"
 
 processing:
-  batch_size: 50
+  batch_size: 20
   parallel_workers: 4
   rate_limit_delay: 0.1
   temp_directory: "./data/PDB-downloads"
-  max_downloads: 100
+  max_downloads: 60
   cutoff: 3.0
   selection_radius: 6.0
   target: "ZN"
@@ -56,11 +50,11 @@ processing:
   include_waters: true
 
 output:
-  results_database: "./data/results/zn_cys4.db"
+  results_database: "./data/results/summary.db"
   checkpoint_file: "./data/results/checkpoint.db"
   log_file: "./data/pipeline.log"
-  save_matching_structures: false
-  matched_structures_dir: "./data/results/matched_cifs"
+  save_matching_structures: true
+  matched_structures_dir: "./data/results/validated_structures"
   output_dir: "./data/output"
 
 validation:

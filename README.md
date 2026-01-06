@@ -201,8 +201,6 @@ You can provide a YAML config to enable search mode (see `search-spec.md`).
 ```yaml
 search_parameters:
   metal_ion: "ZN"
-  coordinating_residues: ["CYS"]
-  coordination_count: 4
   resolution_cutoff: 2.0
   experimental_method: "X-RAY DIFFRACTION"
   polymer_type: "Protein"

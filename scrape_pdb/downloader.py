@@ -9,7 +9,6 @@ from .constants import USER_AGENT
 from .config import PipelineConfig
 from .search import search_pdb
 from .checkpoint import CheckpointManager
-from pathlib import Path
 import urllib.request
 import gzip
 import shutil
@@ -101,30 +100,39 @@ def batch_download_from_list(listfile: str, outdir: str) -> list[str]:
             paths.append(p)
     return paths
 
-def resolve_input_sources(config: PipelineConfig, checkpoint: Optional[CheckpointManager] = None) -> list[str]:
+def resolve_input_sources(config: PipelineConfig, checkpoint: Optional[CheckpointManager] = None, limit: Optional[int] = None, skip_kept: bool = False) -> list[str]:
     """Resolve input sources based on `PipelineConfig` attributes.
 
     If a `CheckpointManager` is provided, already-completed PDB IDs
     will be skipped to allow restart/resume behavior.
+    
+    Args:
+        config: Pipeline configuration
+        checkpoint: Optional checkpoint manager for tracking processed IDs
+        limit: Maximum number of structures to download in this call
+        skip_kept: If True, skip structures that have already been kept (matched status)
     """
     mode = config.input_mode
     data = config.input_data
     download_dir = str(config.download_dir)
 
-    sources = []
-    max_dl = None
-    try:
-        max_dl = int(config.processing.max_downloads) if config.processing.max_downloads is not None else None
-    except Exception:
-        max_dl = None
+    sources: list[str] = []
+    max_dl = limit if limit is not None else None
     downloaded = 0
+    skip_statuses = {"matched", "rejected", "error", "download_failed"}
+
+    def record_download_failure(pdb_id: str) -> None:
+        if checkpoint:
+            checkpoint.update_status(pdb_id, "download_failed", error_message="download_failed")
+        logger.info(f"[i] Marking {pdb_id} as download_failed")
 
     def should_process(pdb_id: str) -> bool:
         if not checkpoint:
             return True
         status = checkpoint.get_status(pdb_id)
-        if status in ("matched", "rejected"):
-            logger.info(f"[i] Skipping {pdb_id}, already {status} in checkpoint")
+        # Always skip if already processed (matched, rejected, or error)
+        if status in skip_statuses:
+            logger.debug(f"[i] Skipping {pdb_id}, already {status} in checkpoint")
             return False
         return True
 
@@ -140,6 +148,8 @@ def resolve_input_sources(config: PipelineConfig, checkpoint: Optional[Checkpoin
             if path:
                 sources.append(path)
                 downloaded += 1
+            else:
+                record_download_failure(pdb_id)
     
     elif mode == "paths":
         # List of local file paths
@@ -178,6 +188,8 @@ def resolve_input_sources(config: PipelineConfig, checkpoint: Optional[Checkpoin
             if p:
                 sources.append(p)
                 downloaded += 1
+            else:
+                record_download_failure(t)
     
     elif mode == "search":
         # Perform RCSB search based on config, then download resulting IDs
@@ -186,7 +198,12 @@ def resolve_input_sources(config: PipelineConfig, checkpoint: Optional[Checkpoin
         except Exception as e:
             logger.error(f"Search failed: {e}")
             return []
-        for pdb_id in ids:
+        filtered_ids = ids
+        if checkpoint and skip_kept:
+            filtered_ids = checkpoint.get_pending_ids(ids)
+            logger.info(f"[i] {len(filtered_ids)} pending IDs remain after checkpoint filter (from {len(ids)})")
+
+        for pdb_id in filtered_ids:
             if not should_process(pdb_id):
                 continue
             if max_dl is not None and downloaded >= max_dl:
@@ -196,6 +213,8 @@ def resolve_input_sources(config: PipelineConfig, checkpoint: Optional[Checkpoin
             if p:
                 sources.append(p)
                 downloaded += 1
+            else:
+                record_download_failure(pdb_id)
     elif mode == "mixed":
         # Mix of IDs and paths
         for item in data:
@@ -209,6 +228,8 @@ def resolve_input_sources(config: PipelineConfig, checkpoint: Optional[Checkpoin
                 if path:
                     sources.append(path)
                     downloaded += 1
+                else:
+                    record_download_failure(item)
             else:
                 logger.info(f"[!] Skipping invalid item: {item}")
     

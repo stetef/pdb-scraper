@@ -13,8 +13,6 @@ logger = logging.getLogger("pipeline.config")
 
 class SearchParameters(BaseModel):
     metal_ion: str
-    coordinating_residues: List[str] = Field(default_factory=list)
-    coordination_count: Optional[int] = None
     resolution_cutoff: Optional[float] = None
     experimental_method: str = "ALL"
     polymer_type: Optional[str] = None  # None means all polymer types
@@ -57,10 +55,11 @@ class OutputConfig(BaseModel):
     log_file: Path = Path("./results/pipeline.log")
     save_matching_structures: bool = False
     matched_structures_dir: Path = Path("./results/matched_cifs")
+    kept_structures_dir: Path = Path("./data/kept_structures")  # Directory for validated PDB files
     output_dir: Path = Path("./results")
     altloc_report_file: Optional[Path] = None
 
-    @field_validator("results_database", "checkpoint_file", "log_file", "matched_structures_dir", "output_dir", "altloc_report_file", mode="before")
+    @field_validator("results_database", "checkpoint_file", "log_file", "matched_structures_dir", "kept_structures_dir", "output_dir", "altloc_report_file", mode="before")
     @classmethod
     def to_path(cls, v: Any) -> Optional[Path]:
         if v is None: return None
@@ -198,8 +197,6 @@ def create_example_config(output_path: str = "config.yaml") -> None:
     example = {
         "search_parameters": {
             "metal_ion": "ZN",
-            "coordinating_residues": ["CYS"],
-            "coordination_count": 4,
             "resolution_cutoff": 2.0,
             "experimental_method": "X-RAY DIFFRACTION",
             "polymer_type": "Protein"

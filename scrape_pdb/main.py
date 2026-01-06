@@ -49,86 +49,135 @@ def run_pipeline(config_path: str, verbose: bool = False) -> int:
         # Create output directories
         config.output_dir.mkdir(parents=True, exist_ok=True)
         config.download_dir.mkdir(parents=True, exist_ok=True)
+        storage_dir = config.output.matched_structures_dir if config.output.save_matching_structures else config.output.kept_structures_dir
+        storage_dir.mkdir(parents=True, exist_ok=True)
         
         # Initialize checkpoint manager
         checkpoint = CheckpointManager(str(config.output.checkpoint_file))
 
-        # Resolve input sources (may perform search and download)
-        logger.info(f"Resolving input sources ({config.input_mode})...")
-        sources = resolve_input_sources(config, checkpoint=checkpoint)
+        # Track how many PDBs we've kept (successfully validated)
+        max_to_keep = config.processing.max_downloads or float('inf')
+        kept_count = checkpoint.get_kept_count()
         
-        if not sources:
-            logger.error("No input sources resolved. Check configuration.")
-            return 1
+        logger.info(f"Already kept {kept_count} structures from previous runs")
+        logger.info(f"Target: keep up to {max_to_keep} total structures")
         
-        logger.info(f"Found {len(sources)} PDB file(s) to process")
-        
-        # Process each PDB
+        # Process in batches until we have enough kept structures
         all_written: list[str] = []
         cache_runs: list[dict] = []
         failed_pdbs: list[str] = []
         
-        processed_since_cleanup = 0
-        for idx, source_path in enumerate(tqdm(sources, desc="Processing PDBs"), 1):
-            pdb_id = Path(source_path).stem
-            
+        while kept_count < max_to_keep:
+            # Download next batch
             logger.info("")
-            logger.info(f"[{idx}/{len(sources)}] Processing: {pdb_id}")
+            logger.info(f"=== Downloading next batch (kept so far: {kept_count}/{max_to_keep}) ===")
             
-            try:
-                # Update checkpoint: mark in progress
-                checkpoint.update_status(pdb_id, "in_progress")
+            batch_limit = config.processing.batch_size
+            if max_to_keep != float('inf'):
+                remaining_needed = max_to_keep - kept_count
+                if remaining_needed <= 0:
+                    logger.info("No remaining structures needed; stopping downloads.")
+                    break
+                batch_limit = min(config.processing.batch_size, remaining_needed)
 
-                with PipelineLogger(logger, pdb_id) as pdb_log:
-                    written = process_pdb(
-                        pdb_path=source_path,
-                        config=config
-                    )
-
-                    pdb_log.log_clusters(len(written))
-
-                    # Cache this run
-                    run = {
-                        "pdb_path": str(source_path),
-                        "pdb_id": pdb_id,
-                        "target": config.target,
-                        "cutoff": config.cutoff,
-                        "selection_radius": config.selection_radius,
-                        "clusters": [{"xyz_path": p} for p in written],
-                    }
-                    cache_runs.append(run)
-                    all_written.extend(written)
-
-                    # Update checkpoint status
-                    if written:
-                        checkpoint.update_status(pdb_id, "matched")
-                    else:
-                        checkpoint.update_status(pdb_id, "rejected", rejection_reason="no_clusters")
-
-            except Exception as e:
-                logger.error(f"Failed to process {pdb_id}: {e}", exc_info=True)
-                failed_pdbs.append(pdb_id)
-                checkpoint.update_status(pdb_id, "error", error_message=str(e))
-                continue
-
-            # Batch cleanup of download directory to limit disk usage
-            processed_since_cleanup += 1
-            if processed_since_cleanup >= config.processing.batch_size:
+            # Get next batch of sources
+            batch_sources = resolve_input_sources(
+                config, 
+                checkpoint=checkpoint,
+                limit=batch_limit,
+                skip_kept=True
+            )
+            
+            if not batch_sources:
+                logger.info("No more structures to download.")
+                break
+            
+            logger.info(f"Downloaded {len(batch_sources)} structure(s) in this batch")
+            
+            # Process each PDB in the batch
+            import shutil
+            for idx, source_path in enumerate(batch_sources, 1):
+                pdb_id = Path(source_path).stem
+                
+                logger.info("")
+                logger.info(f"[Batch {idx}/{len(batch_sources)}] Processing: {pdb_id}")
+                
                 try:
-                    dl_dir = config.download_dir
-                    logger.info(f"Batch complete ({processed_since_cleanup}). Cleaning download directory: {dl_dir}")
-                    for p in dl_dir.glob("*"):
-                        try:
-                            if p.is_file():
-                                p.unlink()
-                            elif p.is_dir():
-                                import shutil
-                                shutil.rmtree(p)
-                        except Exception:
-                            logger.debug(f"Failed removing {p}")
+                    # Update checkpoint: mark in progress
+                    checkpoint.update_status(pdb_id, "in_progress")
+
+                    with PipelineLogger(logger, pdb_id) as pdb_log:
+                        written = process_pdb(
+                            pdb_path=source_path,
+                            config=config
+                        )
+
+                        pdb_log.log_clusters(len(written))
+
+                        # Update checkpoint status and handle file
+                        if written:
+                            # Validation passed
+                            checkpoint.update_status(pdb_id, "matched")
+                            kept_count += 1
+                            
+                            # Handle PDB file based on save_matching_structures setting
+                            if config.output.save_matching_structures:
+                                # Keep PDB: move to matched directory
+                                matched_path = storage_dir / Path(source_path).name
+                                shutil.move(str(source_path), str(matched_path))
+                                logger.info(f"✓ Kept {pdb_id} → {matched_path}")
+                                pdb_path_for_cache = str(matched_path)
+                            else:
+                                # Don't keep PDB: delete it
+                                pdb_path_for_cache = str(source_path)
+                                Path(source_path).unlink(missing_ok=True)
+                                logger.info(f"✓ Validated {pdb_id}, deleted PDB (save_matching_structures=false)")
+                            
+                            # Cache this run
+                            run = {
+                                "pdb_path": pdb_path_for_cache,
+                                "pdb_id": pdb_id,
+                                "target": config.target,
+                                "cutoff": config.cutoff,
+                                "selection_radius": config.selection_radius,
+                                "clusters": [{"xyz_path": p} for p in written],
+                            }
+                            cache_runs.append(run)
+                            all_written.extend(written)
+                            
+                            # Check if we've reached our target
+                            if kept_count >= max_to_keep:
+                                logger.info(f"✓ Reached target of {max_to_keep} kept structures!")
+                                break
+                        else:
+                            # Validation failed - delete this PDB
+                            checkpoint.update_status(pdb_id, "rejected", rejection_reason="no_clusters")
+                            Path(source_path).unlink(missing_ok=True)
+                            logger.info(f"✗ Deleted {pdb_id} (no clusters found)")
+
                 except Exception as e:
-                    logger.debug(f"Cleanup failed: {e}")
-                processed_since_cleanup = 0
+                    logger.error(f"Failed to process {pdb_id}: {e}", exc_info=True)
+                    failed_pdbs.append(pdb_id)
+                    checkpoint.update_status(pdb_id, "error", error_message=str(e))
+                    # Delete failed PDB
+                    Path(source_path).unlink(missing_ok=True)
+                    logger.info(f"✗ Deleted {pdb_id} (processing error)")
+                    continue
+            
+            # Clean up any remaining files in download directory
+            logger.info(f"Cleaning download directory: {config.download_dir}")
+            for p in config.download_dir.glob("*"):
+                try:
+                    if p.is_file():
+                        p.unlink()
+                    elif p.is_dir():
+                        shutil.rmtree(p)
+                except Exception:
+                    logger.debug(f"Failed removing {p}")
+            
+            # Check if we've reached our target
+            if kept_count >= max_to_keep:
+                break
         
         # Update cache
         if cache_runs:
@@ -140,12 +189,15 @@ def run_pipeline(config_path: str, verbose: bool = False) -> int:
         logger.info("="*60)
         logger.info("PIPELINE COMPLETE")
         logger.info("="*60)
-        logger.info(f"Total PDBs processed: {len(sources)}")
-        logger.info(f"Successful: {len(sources) - len(failed_pdbs)}")
-        logger.info(f"Failed: {len(failed_pdbs)}")
+        logger.info(f"Total PDBs validated: {kept_count}")
         logger.info(f"Total XYZ files written: {len(all_written)}")
+        logger.info(f"Failed: {len(failed_pdbs)}")
         logger.info("")
         logger.info("Output files:")
+        if config.output.save_matching_structures:
+            logger.info(f"  - Kept PDB files: {storage_dir}/")
+        else:
+            logger.info(f"  - PDB files: Not saved (save_matching_structures=false)")
         logger.info(f"  - XYZ files: {config.output_dir}/")
         logger.info(f"  - Summary CSV: {config.clusters_csv}")
         logger.info(f"  - AltLoc report: {config.altloc_report}")

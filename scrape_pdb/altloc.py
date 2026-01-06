@@ -7,8 +7,8 @@ import os
 
 from .models import Atom, MustHaveSpec
 from .writer import write_xyz
-from .cluster import select_neighbors_from, apply_water_toggle, select_coordinating_neighbors
-from .geometry import classify_geometry, coord_string
+from .cluster import apply_water_toggle, select_coordinating_neighbors
+from .geometry import coord_string
 from .utils import dist
 
 import logging
@@ -53,8 +53,6 @@ def build_altloc_files_for_center(
         target_upper: str,
         include_waters: bool,
         must_have: MustHaveSpec,
-        csv_common: dict[str, str],
-        metals_in_comp: list[Atom],
         coord_distance_min: float,
         coord_distance_max: float,
         coord_filters: Optional[set[str]]) -> list[str]:
@@ -63,18 +61,6 @@ def build_altloc_files_for_center(
     Returns list of written XYZ file paths.
     """
     written: list[str] = []
-
-    # Helper to fetch altloc atom if exists
-    # def get_atom_for_label(a: Atom, lab: str) -> Optional[Atom]:
-    #     key = (a.chain, a.resseq, a.icode, a.atom_name)
-    #     if key not in raw_groups:
-    #         return None
-    #     # Preferred: exact label; else blank for unlabeled
-    #     if lab in raw_groups[key]:
-    #         return raw_groups[key][lab]
-    #     if "" in raw_groups[key]:
-    #         return raw_groups[key][""]
-    #     return None
 
     center_key = (center.chain, center.resseq, center.icode, center.atom_name)
     center_labels = altloc_set_for_atom_id(raw_groups, center_key)  # excludes blank
@@ -108,7 +94,7 @@ def build_altloc_files_for_center(
             chosen_atoms = [a for a in chosen_atoms if dist(a.coord, center.coord) <= cutoff or a.serial == center.serial]
 
             # Apply H/water toggle
-            chosen_atoms = apply_water_toggle(chosen_atoms, include_waters=True)  # waters included by default; soft-exclusion handled upstream
+            chosen_atoms = apply_water_toggle(chosen_atoms, include_waters=include_waters)
 
             # Must-have filter on all cluster atoms (exclude center for counts)
             if not must_have.passes([a for a in chosen_atoms if a.serial != center.serial]):
@@ -117,7 +103,7 @@ def build_altloc_files_for_center(
             # Coord filter on coordinating neighbors only
             if coord_filters:
                 coord_neigh = select_coordinating_neighbors(center, chosen_atoms, coord_distance_min, coord_distance_max)
-                coord_neigh = apply_water_toggle(coord_neigh, include_waters=True)
+                coord_neigh = apply_water_toggle(coord_neigh, include_waters=include_waters)
                 coord_str = coord_string(coord_neigh)
                 if coord_str not in coord_filters:
                     continue
@@ -158,14 +144,14 @@ def build_altloc_files_for_center(
                 # cutoff from origin
                 chosen_atoms = [a for a in chosen_atoms if dist(a.coord, origin.coord) <= cutoff or a.serial == origin.serial]
                 # Apply toggles
-                chosen_atoms = apply_water_toggle(chosen_atoms, include_waters=True)
+                chosen_atoms = apply_water_toggle(chosen_atoms, include_waters=include_waters)
                 # Must-have on all cluster atoms (exclude center)
                 if not must_have.passes([a for a in chosen_atoms if a.serial != origin.serial]):
                     continue
                 # Coord filter on coordinating neighbors only
                 if coord_filters:
                     coord_neigh = select_coordinating_neighbors(origin, chosen_atoms, coord_distance_min, coord_distance_max)
-                    coord_neigh = apply_water_toggle(coord_neigh, include_waters=True)
+                    coord_neigh = apply_water_toggle(coord_neigh, include_waters=include_waters)
                     coord_str = coord_string(coord_neigh)
                     if coord_str not in coord_filters:
                         continue
@@ -191,14 +177,14 @@ def build_altloc_files_for_center(
                 else:
                     origin = center
                 chosen_atoms = [a for a in chosen_atoms if dist(a.coord, origin.coord) <= cutoff or a.serial == origin.serial]
-                chosen_atoms = apply_water_toggle(chosen_atoms, include_waters=True)
+                chosen_atoms = apply_water_toggle(chosen_atoms, include_waters=include_waters)
                 # Must-have on all cluster atoms
                 if not must_have.passes([a for a in chosen_atoms if a.serial != origin.serial]):
                     continue
                 # Coord filter on coordinating neighbors only
                 if coord_filters:
                     coord_neigh = select_coordinating_neighbors(origin, chosen_atoms, coord_distance_min, coord_distance_max)
-                    coord_neigh = apply_water_toggle(coord_neigh, include_waters=True)
+                    coord_neigh = apply_water_toggle(coord_neigh, include_waters=include_waters)
                     coord_str = coord_string(coord_neigh)
                     if coord_str not in coord_filters:
                         continue

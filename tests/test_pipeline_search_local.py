@@ -13,8 +13,7 @@ def make_search_config(tmp_path: Path) -> dict:
     return {
         'search_parameters': {
             'metal_ion': 'ZN',
-            'coordinating_residues': ['CYS'],
-            'coordination_count': 4,
+
             'resolution_cutoff': 3.0,
             'experimental_method': 'X-RAY DIFFRACTION',
             'polymer_type': 'Protein'

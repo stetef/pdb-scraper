@@ -16,8 +16,7 @@ from scrape_pdb.config import (
 def make_config():
     sp = SearchParameters(
         metal_ion="ZN",
-        coordinating_residues=[],
-        coordination_count=None,
+
         resolution_cutoff=2.5,
         experimental_method="X-RAY DIFFRACTION",
         polymer_type="Protein",

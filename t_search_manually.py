@@ -10,8 +10,6 @@ from datetime import datetime
 class MockSearchParams:
     def __init__(self):
         self.metal_ion = "ZN"
-        self.coordinating_residues = ["CYS"]
-        self.coordination_count = 4
         self.resolution_cutoff = 2.0
         self.experimental_method = "X-RAY DIFFRACTION"
         self.polymer_type = "Protein"
@@ -19,8 +17,6 @@ class MockSearchParams:
     def model_dump(self):
         return {
             "metal_ion": self.metal_ion,
-            "coordinating_residues": self.coordinating_residues,
-            "coordination_count": self.coordination_count,
             "resolution_cutoff": self.resolution_cutoff,
             "experimental_method": self.experimental_method,
             "polymer_type": self.polymer_type

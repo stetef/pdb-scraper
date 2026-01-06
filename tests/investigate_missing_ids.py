@@ -185,9 +185,6 @@ def check_pdb_against_criteria(pdb_id: str, config_path: str = None):
         print(f"Reasons: Failed {len(failures)} criteria - {', '.join(failures)}")
     else:
         print(f"VERDICT: Structure SHOULD be included in search")
-        print(f"Note: Actual inclusion also depends on post-search filters:")
-        print(f"  - Coordinating residues: {params.coordinating_residues}")
-        print(f"  - Coordination count: {params.coordination_count}")
     
     print(f"{'='*70}\n")
 

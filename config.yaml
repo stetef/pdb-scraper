@@ -2,11 +2,9 @@
 
 search_parameters:
   metal_ion: "ZN"
-  coordinating_residues: ["CYS"] # Used for post-filtering, not API search
-  coordination_count: 4          # Used for post-filtering
   resolution_cutoff: 2.0
   experimental_method: "X-RAY DIFFRACTION"
-  polymer_type: null  # null = all polymer types; use "polypeptide(L)" for proteins
+  polymer_type: null
 
 processing:
   batch_size: 20
@@ -22,11 +20,11 @@ processing:
   include_waters: true
 
 output:
-  results_database: "./data/clusters.csv"
-  checkpoint_file: "./data/checkpoint.db"
+  results_database: "./data/results/summary.db"
+  checkpoint_file: "./data/results/checkpoint.db"
   log_file: "./data/pipeline.log"
-  save_matching_structures: false
-  matched_structures_dir: "./data/matched_cifs"
+  save_matching_structures: true
+  matched_structures_dir: "./data/results/validated_structures"
   output_dir: "./data/output"
 
 validation:

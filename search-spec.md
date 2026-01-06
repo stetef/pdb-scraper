@@ -10,8 +10,6 @@ A memory-efficient, fault-tolerant pipeline for searching, downloading, and anal
 ```yaml
 search_parameters:
   metal_ion: string              # e.g., "ZN", "FE", "MG"
-  coordinating_residues: list    # e.g., ["CYS"], ["HIS", "CYS"] (used during analysis; not in search query)
-  coordination_count: int        # exact number of coordinating residues (validated during analysis; not in query)
   resolution_cutoff: float       # maximum resolution in Angstroms
   experimental_method: string    # e.g., "X-RAY DIFFRACTION", "ALL"
   polymer_type: string           # e.g., "Protein", "DNA", "ALL"
@@ -62,9 +60,7 @@ validation:
   - Retrieve list of PDB IDs (`return_all_hits: true`)
 
   Note: Enable `input_mode: "search"` in the configuration to run the query automatically. Returned
-  IDs are downloaded into `processing.temp_directory` and processed like manually provided IDs. The
-  fields `coordinating_residues` and `coordination_count` are applied during analysis, not used to
-  restrict the search query.
+  IDs are downloaded into `processing.temp_directory` and processed like manually provided IDs.
 
 2. **Pre-filtering**
    - Current implementation does not perform a separate metadata pre-filter step; filtering occurs
@@ -189,8 +185,6 @@ coordination_sites table:
   - site_id: int (primary key, auto-increment)
   - pdb_id: string (foreign key)
   - metal_atom_id: string
-  - coordinating_residues: json/text (list of residue identifiers)
-  - coordination_count: int
   - residue_types: json/text (count by type, e.g., {"CYS": 4})
   - geometry_metrics: json/text (distances, angles, etc.)
   - validation_passed: boolean
@@ -257,7 +251,7 @@ coordination_sites table:
 - Checkpoint integration: skip IDs with status `matched` or `rejected`; retry `error` and `in_progress` entries.
 - Download fallbacks: `.pdb` → `.pdb.gz` → `.cif.gz` stored in `processing.temp_directory`.
 - Serial processing in a single process (parallelization planned).
-- Post-parse validation and analysis using `cutoff`, `target`, `must_have`, and `include_waters`; `coordinating_residues` and `coordination_count` are applied during analysis, not in the search query.
+- Post-parse validation and analysis using `cutoff`, `target`, `must_have`, and `include_waters`.
 - Batch cleanup: after `processing.batch_size` processed structures, remove all files in the download directory.
 - Outputs: clusters summary CSV, altloc report CSV, and `cache.json` manifest.
 - Optional `processing.max_downloads` to cap downloads for tests/dev.
@@ -273,8 +267,6 @@ coordination_sites table:
 ```yaml
 search_parameters:
   metal_ion: "ZN"
-  coordinating_residues: ["CYS"]
-  coordination_count: 4
   resolution_cutoff: 2.0
   experimental_method: "X-RAY DIFFRACTION"
   polymer_type: "Protein"

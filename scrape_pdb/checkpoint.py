@@ -53,7 +53,7 @@ class CheckpointManager:
         """
         Filters a list of PDB IDs, returning only those not already completed.
         """
-        cursor = self.conn.execute("SELECT pdb_id FROM checkpoints WHERE status IN ('matched', 'rejected', 'error')")
+        cursor = self.conn.execute("SELECT pdb_id FROM checkpoints WHERE status IN ('matched', 'rejected', 'error', 'download_failed')")
         completed_ids = {row[0] for row in cursor.fetchall()}
         
         pending_ids = [pdb_id for pdb_id in all_ids if pdb_id not in completed_ids]
@@ -76,6 +76,12 @@ class CheckpointManager:
             'pending': pending_count
         }
         return stats
+
+    def get_kept_count(self) -> int:
+        """Returns the count of PDB files that have been kept (status='matched')."""
+        cursor = self.conn.execute("SELECT COUNT(*) FROM checkpoints WHERE status = 'matched'")
+        result = cursor.fetchone()
+        return result[0] if result else 0
 
     def __del__(self):
         """Ensures the database connection is closed."""

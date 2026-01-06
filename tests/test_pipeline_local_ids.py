@@ -18,8 +18,7 @@ def test_pipeline_with_local_ids(monkeypatch, tmp_path):
     cfg = {
         'search_parameters': {
             'metal_ion': 'ZN',
-            'coordinating_residues': ['CYS'],
-            'coordination_count': 4,
+
             'resolution_cutoff': 3.0,
             'experimental_method': 'X-RAY DIFFRACTION',
             'polymer_type': 'Protein'

@@ -77,8 +77,9 @@ def test_build_altloc_case_3(tmp_path, monkeypatch):
         target_upper="ZN",
         include_waters=True,
         must_have=must,
-        csv_common={},
-        metals_in_comp=[center],
+        coord_distance_min=0.0,
+        coord_distance_max=10.0,
+        coord_filters=None
     )
 
     # Should have created one file per neighbor label (A and B)
@@ -132,8 +133,9 @@ def test_build_altloc_case_1_and_2(tmp_path, monkeypatch):
         target_upper="ZN",
         include_waters=True,
         must_have=must,
-        csv_common={},
-        metals_in_comp=[cA, cB],
+        coord_distance_min=0.0,
+        coord_distance_max=10.0,
+        coord_filters=None
     )
 
     # Should write one per label A and B
@@ -165,8 +167,9 @@ def test_build_altloc_case_1_and_2(tmp_path, monkeypatch):
         target_upper="ZN",
         include_waters=True,
         must_have=must,
-        csv_common={},
-        metals_in_comp=[cA, cB],
+        coord_distance_min=0.0,
+        coord_distance_max=10.0,
+        coord_filters=None
     )
 
     assert len(calls2) >= 1

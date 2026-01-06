@@ -14,8 +14,7 @@ def make_config_dict(tmp_path: Path) -> dict:
     return {
         'search_parameters': {
             'metal_ion': 'ZN',
-            'coordinating_residues': ['CYS'],
-            'coordination_count': 4,
+
             'resolution_cutoff': 2.5,
             'experimental_method': 'X-RAY DIFFRACTION',
             'polymer_type': 'Protein',
@@ -42,7 +41,7 @@ def make_config_dict(tmp_path: Path) -> dict:
         },
         'validation': {
             'coordination_distance_max': 2.8,
-            'coordination_distance_min': 2.0,
+            'coordination_distance_min': 2.0
         },
         'input_mode': 'search',
         'input_data': [],

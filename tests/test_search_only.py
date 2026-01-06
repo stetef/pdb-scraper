@@ -45,8 +45,6 @@ def test_search_only_save_ids():
     
     logger.info(f"Search parameters:")
     logger.info(f"  Metal ion: {config.search_parameters.metal_ion}")
-    logger.info(f"  Coordinating residues: {config.search_parameters.coordinating_residues}")
-    logger.info(f"  Coordination count: {config.search_parameters.coordination_count}")
     logger.info(f"  Resolution cutoff: {config.search_parameters.resolution_cutoff}")
     logger.info(f"  Experimental method: {config.search_parameters.experimental_method}")
     logger.info(f"  Polymer type: {config.search_parameters.polymer_type}")

@@ -292,6 +292,15 @@ def process_pdb(
 
     # Resolution
     resolution_angs = parse_pdb_resolution(pdb_path)
+    
+    # Filter out structures with NA resolution if resolution_cutoff is specified
+    if config.search_parameters and config.search_parameters.resolution_cutoff is not None:
+        if resolution_angs is None:
+            logger.info(f"  [i] Skipping {base_id}: resolution is NA but resolution_cutoff={config.search_parameters.resolution_cutoff} Å is specified")
+            return []
+        if resolution_angs > config.search_parameters.resolution_cutoff:
+            logger.info(f"  [i] Skipping {base_id}: resolution {resolution_angs:.2f} Å exceeds cutoff {config.search_parameters.resolution_cutoff} Å")
+            return []
 
     # Metals universe (after exclusions)
     # metal_set = set(ALL_METALS) - config.metals_excluded
@@ -362,10 +371,8 @@ def process_pdb(
             cluster_index=cluster_counter,
             cluster_type=comp_type,
             target_upper=target_upper,
-            include_waters=True,  # waters included by default; soft toggle handled in selection function below
+            include_waters=config.include_waters,
             must_have=config.must_have,
-            csv_common={"PDB": base_id},
-            metals_in_comp=comp_metals,
             coord_distance_min=config.validation.coordination_distance_min,
             coord_distance_max=config.validation.coordination_distance_max,
             coord_filters=config.coord_filters
@@ -382,7 +389,7 @@ def process_pdb(
                     for idx_c, c in enumerate(centers, start=1):
                         # Get all neighbors within selection_radius for must_have filter
                         neigh_all = select_neighbors_from(c, selected_union, config.selection_radius)
-                        neigh_all = apply_water_toggle(neigh_all, include_waters=True)
+                        neigh_all = apply_water_toggle(neigh_all, include_waters=config.include_waters)
                         # Must-have filter on all cluster atoms
                         if not config.must_have.passes(neigh_all):
                             continue
@@ -390,7 +397,7 @@ def process_pdb(
                         coord_neigh = select_coordinating_neighbors(c, selected_union,
                                                                     config.validation.coordination_distance_min,
                                                                     config.validation.coordination_distance_max)
-                        coord_neigh = apply_water_toggle(coord_neigh, include_waters=True)
+                        coord_neigh = apply_water_toggle(coord_neigh, include_waters=config.include_waters)
                         geom, metrics, flags = classify_geometry(c, coord_neigh)
                         coord = coord_string(coord_neigh)
                         if config.coord_filters and coord not in config.coord_filters:
@@ -414,14 +421,14 @@ def process_pdb(
                     c = center_for_alt
                     # Get all neighbors within selection_radius for must_have filter
                     neigh_all = select_neighbors_from(c, selected_union, config.selection_radius)
-                    neigh_all = apply_water_toggle(neigh_all, include_waters=True)
+                    neigh_all = apply_water_toggle(neigh_all, include_waters=config.include_waters)
                     if not config.must_have.passes(neigh_all):
                         continue
                     # Get coordinating neighbors for geometry and coord filter
                     coord_neigh = select_coordinating_neighbors(c, selected_union,
                                                                 config.validation.coordination_distance_min,
                                                                 config.validation.coordination_distance_max)
-                    coord_neigh = apply_water_toggle(coord_neigh, include_waters=True)
+                    coord_neigh = apply_water_toggle(coord_neigh, include_waters=config.include_waters)
                     geom, metrics, flags = classify_geometry(c, coord_neigh)
                     coord = coord_string(coord_neigh)
                     if config.coord_filters and coord not in config.coord_filters:
@@ -451,7 +458,7 @@ def process_pdb(
                     written_paths.append(p)
         else:
             # No altloc case → write a single base file
-            selected = apply_water_toggle(selected_union, include_waters=True)
+            selected = apply_water_toggle(selected_union, include_waters=config.include_waters)
             # Must-have: for homo/multi_hetero apply to target metal; for multi_homo per-center rows below
             # For writing XYZ we use origin = first target center
             origin_atom = center_for_alt
