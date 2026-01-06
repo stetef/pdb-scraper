@@ -12,6 +12,10 @@ class CheckpointManager:
         self.conn = sqlite3.connect(self.db_path)
         self._create_table()
 
+    @staticmethod
+    def _norm_id(pdb_id: str) -> str:
+        return (pdb_id or "").strip().lower()
+
     def _create_table(self):
         """Creates the checkpoints table if it doesn't exist."""
         with self.conn:
@@ -31,6 +35,9 @@ class CheckpointManager:
 
     def update_status(self, pdb_id: str, status: str, rejection_reason: str = None, error_message: str = None):
         """Adds or updates the status of a PDB ID."""
+        pdb_id = self._norm_id(pdb_id)
+        if not pdb_id:
+            return
         timestamp = datetime.datetime.now().isoformat()
         with self.conn:
             self.conn.execute("""
@@ -45,6 +52,9 @@ class CheckpointManager:
 
     def get_status(self, pdb_id: str) -> str | None:
         """Gets the status of a single PDB ID."""
+        pdb_id = self._norm_id(pdb_id)
+        if not pdb_id:
+            return None
         cursor = self.conn.execute("SELECT status FROM checkpoints WHERE pdb_id = ?", (pdb_id,))
         result = cursor.fetchone()
         return result[0] if result else None
@@ -53,10 +63,16 @@ class CheckpointManager:
         """
         Filters a list of PDB IDs, returning only those not already completed.
         """
-        cursor = self.conn.execute("SELECT pdb_id FROM checkpoints WHERE status IN ('matched', 'rejected', 'error', 'download_failed')")
-        completed_ids = {row[0] for row in cursor.fetchall()}
-        
-        pending_ids = [pdb_id for pdb_id in all_ids if pdb_id not in completed_ids]
+        normalized_ids = [self._norm_id(pdb_id) for pdb_id in all_ids]
+        normalized_ids = [pdb_id for pdb_id in normalized_ids if pdb_id]
+
+        cursor = self.conn.execute(
+            "SELECT pdb_id FROM checkpoints WHERE status IN ('matched', 'rejected', 'error', 'download_failed')"
+        )
+        completed_ids = {self._norm_id(row[0]) for row in cursor.fetchall()}
+
+        # Preserve order while filtering
+        pending_ids = [pdb_id for pdb_id in normalized_ids if pdb_id not in completed_ids]
         return pending_ids
 
     def get_stats(self, all_ids: list[str]) -> dict:

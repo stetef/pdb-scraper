@@ -55,6 +55,18 @@ def test_update_get_and_pending_ids(tmp_path):
     assert pending == ["c3"]
 
 
+def test_checkpoint_normalizes_ids_case_insensitive(tmp_path):
+    db_path = tmp_path / "cp_case.db"
+    mgr = CheckpointManager(str(db_path))
+
+    mgr.update_status("1ABC", "matched")
+    assert mgr.get_status("1abc") == "matched"
+    assert mgr.get_status("1AbC") == "matched"
+
+    pending = mgr.get_pending_ids(["1abc", "2DEF", "3ghi"])
+    assert pending == ["2def", "3ghi"]
+
+
 def test_get_stats_counts(tmp_path):
     db_path = tmp_path / "cp3.db"
     mgr = CheckpointManager(str(db_path))

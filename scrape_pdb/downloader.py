@@ -117,16 +117,26 @@ def resolve_input_sources(config: PipelineConfig, checkpoint: Optional[Checkpoin
     download_dir = str(config.download_dir)
 
     sources: list[str] = []
-    max_dl = limit if limit is not None else None
+    config_max = getattr(getattr(config, "processing", None), "max_downloads", None)
+    max_dl = limit if limit is not None else config_max
     downloaded = 0
     skip_statuses = {"matched", "rejected", "error", "download_failed"}
 
+    def norm_id(pdb_id: str) -> str:
+        return (pdb_id or "").strip().lower()
+
     def record_download_failure(pdb_id: str) -> None:
+        pdb_id = norm_id(pdb_id)
+        if not pdb_id:
+            return
         if checkpoint:
             checkpoint.update_status(pdb_id, "download_failed", error_message="download_failed")
         logger.info(f"[i] Marking {pdb_id} as download_failed")
 
     def should_process(pdb_id: str) -> bool:
+        pdb_id = norm_id(pdb_id)
+        if not pdb_id:
+            return False
         if not checkpoint:
             return True
         status = checkpoint.get_status(pdb_id)
@@ -139,6 +149,7 @@ def resolve_input_sources(config: PipelineConfig, checkpoint: Optional[Checkpoin
     if mode == "ids":
         # List of PDB IDs to download
         for pdb_id in data:
+            pdb_id = norm_id(pdb_id)
             if not should_process(pdb_id):
                 continue
             if max_dl is not None and downloaded >= max_dl:
@@ -179,6 +190,7 @@ def resolve_input_sources(config: PipelineConfig, checkpoint: Optional[Checkpoin
         with open(list_file) as f:
             tokens = [t for t in re.split(r"[\s,]+", f.read().strip()) if t]
         for t in tokens:
+            t = norm_id(t)
             if not should_process(t):
                 continue
             if max_dl is not None and downloaded >= max_dl:
@@ -198,10 +210,21 @@ def resolve_input_sources(config: PipelineConfig, checkpoint: Optional[Checkpoin
         except Exception as e:
             logger.error(f"Search failed: {e}")
             return []
-        filtered_ids = ids
+
+        # Normalize + preserve order + de-duplicate
+        normalized_ids: list[str] = []
+        seen: set[str] = set()
+        for pdb_id in ids:
+            pdb_id = norm_id(pdb_id)
+            if not pdb_id or pdb_id in seen:
+                continue
+            seen.add(pdb_id)
+            normalized_ids.append(pdb_id)
+
+        filtered_ids = normalized_ids
         if checkpoint and skip_kept:
-            filtered_ids = checkpoint.get_pending_ids(ids)
-            logger.info(f"[i] {len(filtered_ids)} pending IDs remain after checkpoint filter (from {len(ids)})")
+            filtered_ids = checkpoint.get_pending_ids(normalized_ids)
+            logger.info(f"[i] {len(filtered_ids)} pending IDs remain after checkpoint filter (from {len(normalized_ids)})")
 
         for pdb_id in filtered_ids:
             if not should_process(pdb_id):
@@ -221,6 +244,7 @@ def resolve_input_sources(config: PipelineConfig, checkpoint: Optional[Checkpoin
             if os.path.isfile(item):
                 sources.append(item)
             elif len(item) == 4 and item.isalnum():
+                item = norm_id(item)
                 if max_dl is not None and downloaded >= max_dl:
                     logger.info(f"Reached max_downloads limit ({max_dl}). Stopping further downloads.")
                     break

@@ -37,11 +37,11 @@ search_parameters:
   polymer_type: null  # null := all; or use "polypeptide(L)"
 
 processing:
-  batch_size: 20
+  batch_size: 10
   parallel_workers: 4
   rate_limit_delay: 0.1
   temp_directory: "./data/PDB-downloads"
-  max_downloads: 60
+  max_downloads: 30
   cutoff: 3.0
   selection_radius: 6.0
   target: "ZN"

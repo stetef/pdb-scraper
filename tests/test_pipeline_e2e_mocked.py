@@ -54,24 +54,20 @@ def test_pipeline_end_to_end_mocked(monkeypatch, tmp_path):
     cfg_path = tmp_path / 'cfg.yaml'
     cfg_path.write_text(yaml.safe_dump(cfg_dict))
 
-    # Prepare 10 fake pdb ids and files in download dir
+    pdb_ids = [f"P{i:03d}" for i in range(10)]
+
+    # Monkeypatch search_pdb + fetch_pdb (search mode is cached in main now)
+    monkeypatch.setattr('scrape_pdb.main.search_pdb', lambda cfg: pdb_ids)
+
     download_dir = Path(cfg_dict['processing']['temp_directory'])
     download_dir.mkdir(parents=True, exist_ok=True)
 
-    pdb_ids = [f"P{i:03d}" for i in range(10)]
-    files = []
-    for pid in pdb_ids:
-        p = download_dir / f"{pid.lower()}.pdb"
-        p.write_text(f"REMARK   2 RESOLUTION.    1.80 ANGSTROM.\nATOM\n")
-        files.append(str(p))
+    def fake_fetch(pdb_id: str, dest_dir: str):
+        p = Path(dest_dir) / f"{pdb_id.lower()}.pdb"
+        p.write_text("REMARK   2 RESOLUTION.    1.80 ANGSTROM.\nATOM\n")
+        return str(p)
 
-    # Monkeypatch resolve_input_sources to return the files (simulate search+download)
-    def fake_resolve(config, checkpoint=None):
-        # return first N based on max_downloads
-        maxd = config.processing.max_downloads
-        return files[: maxd if maxd is not None else len(files)]
-
-    monkeypatch.setattr('scrape_pdb.main.resolve_input_sources', fake_resolve)
+    monkeypatch.setattr('scrape_pdb.main.fetch_pdb', fake_fetch)
 
     # Create behavior map for process_pdb: some matched (return path), some rejected (empty), some errors
     behavior = {}
@@ -114,7 +110,7 @@ def test_pipeline_end_to_end_mocked(monkeypatch, tmp_path):
         else:
             assert status == 'error'
 
-    # Verify download dir cleaned (cleanup after batches of 3 should have removed files)
+    # Verify download dir cleaned (cleanup after batches should have removed files)
     assert not any(download_dir.iterdir())
 
 

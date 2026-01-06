@@ -8,11 +8,13 @@ import argparse
 
 from .config import load_config, print_config_summary, create_example_config
 from .logger import setup_logger, PipelineLogger
-from .downloader import resolve_input_sources
+from .downloader import resolve_input_sources, fetch_pdb
 from .checkpoint import CheckpointManager
 from tqdm import tqdm
 from .parser import process_pdb
 from .writer import append_cache
+from .search import search_pdb
+from .writer import ensure_csv_headers, write_altloc_report_header
 
 
 def run_pipeline(config_path: str, verbose: bool = False) -> int:
@@ -51,6 +53,10 @@ def run_pipeline(config_path: str, verbose: bool = False) -> int:
         config.download_dir.mkdir(parents=True, exist_ok=True)
         storage_dir = config.output.matched_structures_dir if config.output.save_matching_structures else config.output.kept_structures_dir
         storage_dir.mkdir(parents=True, exist_ok=True)
+
+        # Ensure output CSV files exist even if no clusters are produced.
+        ensure_csv_headers(config)
+        write_altloc_report_header(config)
         
         # Initialize checkpoint manager
         checkpoint = CheckpointManager(str(config.output.checkpoint_file))
@@ -67,6 +73,9 @@ def run_pipeline(config_path: str, verbose: bool = False) -> int:
         cache_runs: list[dict] = []
         failed_pdbs: list[str] = []
         
+        # In search mode, cache the full candidate list once per run.
+        cached_search_ids: list[str] | None = None
+
         while kept_count < max_to_keep:
             # Download next batch
             logger.info("")
@@ -81,12 +90,46 @@ def run_pipeline(config_path: str, verbose: bool = False) -> int:
                 batch_limit = min(config.processing.batch_size, remaining_needed)
 
             # Get next batch of sources
-            batch_sources = resolve_input_sources(
-                config, 
-                checkpoint=checkpoint,
-                limit=batch_limit,
-                skip_kept=True
-            )
+            if config.input_mode == "search":
+                if cached_search_ids is None:
+                    logger.info("Executing search (cached for this run)...")
+                    try:
+                        ids = search_pdb(config)
+                    except Exception as e:
+                        logger.error(f"Search failed: {e}")
+                        break
+
+                    # Normalize + preserve order + de-duplicate
+                    cached_search_ids = []
+                    seen: set[str] = set()
+                    for pdb_id in ids:
+                        pid = (pdb_id or "").strip().lower()
+                        if not pid or pid in seen:
+                            continue
+                        seen.add(pid)
+                        cached_search_ids.append(pid)
+
+                    logger.info(f"Search returned {len(cached_search_ids)} unique PDB IDs.")
+
+                pending_ids = checkpoint.get_pending_ids(cached_search_ids)
+                if not pending_ids:
+                    batch_sources = []
+                else:
+                    next_ids = pending_ids[:batch_limit]
+                    batch_sources = []
+                    for pdb_id in next_ids:
+                        path = fetch_pdb(pdb_id, str(config.download_dir))
+                        if path:
+                            batch_sources.append(path)
+                        else:
+                            checkpoint.update_status(pdb_id, "download_failed", error_message="download_failed")
+            else:
+                batch_sources = resolve_input_sources(
+                    config,
+                    checkpoint=checkpoint,
+                    limit=batch_limit,
+                    skip_kept=True,
+                )
             
             if not batch_sources:
                 logger.info("No more structures to download.")
