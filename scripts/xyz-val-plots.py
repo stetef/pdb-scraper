@@ -29,7 +29,10 @@ import webbrowser
 from dataclasses import dataclass
 from itertools import permutations
 from pathlib import Path
-from typing import Dict, Iterable, List, Tuple
+from typing import Callable, Dict, Iterable, List, Tuple
+
+
+PALETTE = ["#3A3D42", "#457B9D", "#2A9D8F", "#E63946"]
 
 
 @dataclass(frozen=True)
@@ -40,6 +43,60 @@ class XyzAtom:
     z: float
     meta: Dict[str, str]
     raw_comment: str
+
+
+@dataclass
+class MetricAccum:
+    values: List[float]
+    sources: List[str]
+    files_with_lt_expected: int = 0
+
+
+@dataclass(frozen=True)
+class MetricSpec:
+    key: str
+    compute: Callable[[List[XyzAtom]], List[float]]
+    expected_per_file: int
+    summary_label: str
+    title: str
+    xlabel: str
+    out_png_name: str
+    color: str
+    bins: int | str = "auto"
+    unit: str = "Å"
+
+
+def _accumulate_metric(
+    metrics: Dict[str, MetricAccum],
+    spec: MetricSpec,
+    atoms: List[XyzAtom],
+    *,
+    source_name: str,
+) -> None:
+    acc = metrics[spec.key]
+    vals = spec.compute(atoms)
+    if len(vals) < spec.expected_per_file:
+        acc.files_with_lt_expected += 1
+    acc.values.extend(vals)
+    acc.sources.extend([source_name] * len(vals))
+
+
+def _print_metric_summary(spec: MetricSpec, acc: MetricAccum, *, total_files: int) -> None:
+    if not acc.values:
+        return
+    mean = sum(acc.values) / len(acc.values)
+    unit = spec.unit
+    unit_suffix = unit if unit in ("°", "%") else f" {unit}" if unit else ""
+    print(
+        f"{spec.summary_label}: "
+        f"{len(acc.values)} values from {total_files} file(s) "
+        f"(min={min(acc.values):.3f}{unit_suffix}, max={max(acc.values):.3f}{unit_suffix}, mean={mean:.3f}{unit_suffix})"
+    )
+    if acc.files_with_lt_expected:
+        print(
+            f"Note: {acc.files_with_lt_expected} file(s) had <{spec.expected_per_file} contributing values; "
+            "their histogram contribution is truncated."
+        )
 
 
 def _parse_meta_comment(comment: str) -> Dict[str, str]:
@@ -135,10 +192,192 @@ def sg_bond_lengths_to_center(atoms: List[XyzAtom], *, max_sgs: int = 4) -> List
     return dists[:max_sgs]
 
 
-def plot_sg_bond_length_histogram(distances: List[float], sources: List[str], title: str) -> None:
-    """Plot a histogram of SG-to-center bond lengths with hover/click bin inspection.
+def _cys_atoms_by_residue(
+    atoms: List[XyzAtom],
+    *,
+    required_atoms: set[str],
+) -> Dict[Tuple[str, str], Dict[str, XyzAtom]]:
+    by_residue: Dict[Tuple[str, str], Dict[str, XyzAtom]] = {}
+    for a in atoms:
+        if a.meta.get("RES") != "CYS":
+            continue
+        atom_name = a.meta.get("ATOM")
+        if atom_name not in required_atoms:
+            continue
+        chain = a.meta.get("CHAIN", "")
+        resseq = a.meta.get("RESSEQ")
+        if not resseq:
+            continue
+        k = (chain, resseq)
+        by_residue.setdefault(k, {})[atom_name] = a
+    return by_residue
 
-    - Hover a bar to see all filenames that contributed at least one SG distance to that bin.
+
+def distances_selected_by_sg(
+    atoms: List[XyzAtom],
+    point_a: str,
+    point_b: str,
+    *,
+    max_residues: int = 4,
+    selection_atom: str = "SG",
+) -> List[float]:
+    """Generic distance collector for nearest-SG CYS residues.
+
+    This consolidates the repeated pattern used by:
+      - cb_bond_lengths_to_center_selected_by_sg (CB ↔ origin)
+      - ca_bond_lengths_to_center_selected_by_sg (CA ↔ origin)
+      - sg_ca_distances_selected_by_sg (SG ↔ CA)
+      - cb_ca_distances_selected_by_sg (CB ↔ CA)
+
+    Rules:
+      - Residues are keyed by (CHAIN, RESSEQ).
+      - Only CYS residues are considered.
+      - Residues are selected by smallest distance of `selection_atom` to origin.
+      - `point_a` / `point_b` may be an atom name (e.g. "CB") or "origin".
+    """
+
+    required: set[str] = {selection_atom}
+    if point_a != "origin":
+        required.add(point_a)
+    if point_b != "origin":
+        required.add(point_b)
+
+    by_residue = _cys_atoms_by_residue(atoms, required_atoms=required)
+
+    candidates: List[Tuple[float, float]] = []
+    for atom_map in by_residue.values():
+        sel = atom_map.get(selection_atom)
+        if sel is None:
+            continue
+
+        a_atom = None if point_a == "origin" else atom_map.get(point_a)
+        b_atom = None if point_b == "origin" else atom_map.get(point_b)
+        if point_a != "origin" and a_atom is None:
+            continue
+        if point_b != "origin" and b_atom is None:
+            continue
+
+        ax, ay, az = (0.0, 0.0, 0.0) if a_atom is None else (a_atom.x, a_atom.y, a_atom.z)
+        bx, by, bz = (0.0, 0.0, 0.0) if b_atom is None else (b_atom.x, b_atom.y, b_atom.z)
+        dx = ax - bx
+        dy = ay - by
+        dz = az - bz
+        dist = math.sqrt(dx * dx + dy * dy + dz * dz)
+
+        sel_d2 = sel.x * sel.x + sel.y * sel.y + sel.z * sel.z
+        candidates.append((sel_d2, dist))
+
+    candidates.sort(key=lambda t: t[0])
+    return [d for _, d in candidates[:max_residues]]
+
+
+def cb_bond_lengths_to_center_selected_by_sg(atoms: List[XyzAtom], *, max_residues: int = 4) -> List[float]:
+    """Return CB-to-center distances for the `max_residues` CYS residues with nearest SG.
+
+    Rationale: some files contain an extra (5th) CYS SG that is farther away and not
+    coordinated. For the CB histogram we want the CB distances corresponding to the
+    *same* coordinating CYS residues, so we:
+      1) group atoms into residues (CHAIN+RESSEQ)
+      2) keep residues that have both SG and CB
+      3) select the `max_residues` residues with smallest SG distance-to-origin
+      4) return their CB distance-to-origin values
+    """
+    return distances_selected_by_sg(atoms, "CB", "origin", max_residues=max_residues, selection_atom="SG")
+
+
+def ca_bond_lengths_to_center_selected_by_sg(atoms: List[XyzAtom], *, max_residues: int = 4) -> List[float]:
+    """Return CA-to-center distances for the `max_residues` CYS residues with nearest SG.
+
+    Uses the same residue selection rule as the CB histogram: pick the `max_residues`
+    residues with smallest SG distance-to-origin, then report their CA distances.
+    """
+    return distances_selected_by_sg(atoms, "CA", "origin", max_residues=max_residues, selection_atom="SG")
+
+
+def sg_ca_distances_selected_by_sg(atoms: List[XyzAtom], *, max_residues: int = 4) -> List[float]:
+    """Return SG–CA distances for the `max_residues` CYS residues with nearest SG."""
+    return distances_selected_by_sg(atoms, "SG", "CA", max_residues=max_residues, selection_atom="SG")
+
+
+def cb_ca_distances_selected_by_sg(atoms: List[XyzAtom], *, max_residues: int = 4) -> List[float]:
+    """Return CB–CA distances for the `max_residues` CYS residues with nearest SG."""
+    return distances_selected_by_sg(atoms, "CB", "CA", max_residues=max_residues, selection_atom="SG")
+
+
+def sg_cb_angle_vs_radial_selected_by_sg(atoms: List[XyzAtom], *, max_residues: int = 4) -> List[float]:
+    """Return the angle between (origin→SG) and (SG→CB) for nearest-SG CYS residues.
+
+    For each CYS residue, define:
+      - radial vector r = SG - origin = (sg.x, sg.y, sg.z)
+      - bond-ish vector b = CB - SG
+
+    Angle is computed as acos( dot(r, b) / (|r||b|) ) in degrees.
+
+    Residue selection matches the other histograms: pick the `max_residues` residues
+    with smallest SG distance-to-origin, then report their angles.
+    """
+    by_residue: Dict[Tuple[str, str], Dict[str, XyzAtom]] = {}
+    for a in atoms:
+        if a.meta.get("RES") != "CYS":
+            continue
+        atom_name = a.meta.get("ATOM")
+        if atom_name not in {"SG", "CB"}:
+            continue
+        chain = a.meta.get("CHAIN", "")
+        resseq = a.meta.get("RESSEQ")
+        if not resseq:
+            continue
+        k = (chain, resseq)
+        by_residue.setdefault(k, {})[atom_name] = a
+
+    candidates: List[Tuple[float, float]] = []
+    for atom_map in by_residue.values():
+        sg = atom_map.get("SG")
+        cb = atom_map.get("CB")
+        if sg is None or cb is None:
+            continue
+
+        # r = origin->SG
+        rx, ry, rz = sg.x, sg.y, sg.z
+        r2 = rx * rx + ry * ry + rz * rz
+        if r2 == 0.0:
+            continue
+
+        # b = SG->CB
+        bx, by, bz = cb.x - sg.x, cb.y - sg.y, cb.z - sg.z
+        b2 = bx * bx + by * by + bz * bz
+        if b2 == 0.0:
+            continue
+
+        dot = rx * bx + ry * by + rz * bz
+        denom = math.sqrt(r2 * b2)
+        if denom == 0.0:
+            continue
+
+        # Clamp for numerical stability.
+        cosang = max(-1.0, min(1.0, dot / denom))
+        ang_deg = math.degrees(math.acos(cosang))
+
+        sg_d2 = r2
+        candidates.append((sg_d2, ang_deg))
+
+    candidates.sort(key=lambda t: t[0])
+    return [ang for _, ang in candidates[:max_residues]]
+
+
+def plot_bond_length_histogram(
+    distances: List[float],
+    sources: List[str],
+    title: str,
+    xlabel: str,
+    out_png_name: str,
+    color: str = "blue",
+    bins: int | str = "auto",
+    unit: str = "Å",
+) -> None:
+    """Plot a histogram of bond lengths with hover/click bin inspection.
+
+    - Hover a bar to see all filenames that contributed at least one distance to that bin.
     - Click a bar to copy the filenames for that bin to your clipboard.
     """
     try:
@@ -151,7 +390,7 @@ def plot_sg_bond_length_histogram(distances: List[float], sources: List[str], ti
         return
 
     if not distances:
-        print("No SG bond distances collected; skipping histogram plot.")
+        print("No bond distances collected; skipping histogram plot.")
         return
 
     if len(sources) != len(distances):
@@ -175,7 +414,11 @@ def plot_sg_bond_length_histogram(distances: List[float], sources: List[str], ti
             return False
 
     fig, ax = plt.subplots()
-    counts, edges, patches = ax.hist(distances, bins="auto", edgecolor="black", alpha=0.8)
+    # Ensure gridlines are rendered behind artists like bars.
+    ax.set_axisbelow(True)
+    ax.grid(axis="both", zorder=0, alpha=0.5)
+    counts, edges, patches = ax.hist(distances, bins=bins, edgecolor="black", 
+                                     color=color, alpha=0.8, zorder=5)
 
     # Build bin -> set(files) mapping.
     nbins = max(0, len(edges) - 1)
@@ -207,7 +450,8 @@ def plot_sg_bond_length_histogram(distances: List[float], sources: List[str], ti
         lo = float(edges[bin_idx])
         hi = float(edges[bin_idx + 1])
         file_list = sorted(files_by_bin[bin_idx])
-        header = f"Bin {bin_idx + 1}/{nbins}: [{lo:.3f}, {hi:.3f}) Å\n"
+        unit_str = f" {unit}" if unit else ""
+        header = f"Bin {bin_idx + 1}/{nbins}: [{lo:.3f}, {hi:.3f}){unit_str}\n"
         header += f"Count={int(counts[bin_idx])}  Files={len(file_list)}\n"
         header += "(click bar to copy filenames)\n\n"
         return header + "\n".join(file_list)
@@ -262,9 +506,22 @@ def plot_sg_bond_length_histogram(distances: List[float], sources: List[str], ti
     fig.canvas.mpl_connect("button_press_event", _on_click)
 
     plt.title(title)
-    plt.xlabel("Distance from center (origin) to CYS SG (Å)")
+    plt.xlabel(xlabel)
     plt.ylabel("Count")
     plt.tight_layout()
+
+    out_path = Path(out_png_name)
+    if out_path.suffix.lower() != ".png":
+        out_path = out_path.with_suffix(out_path.suffix + ".png") if out_path.suffix else out_path.with_suffix(".png")
+    if not out_path.is_absolute():
+        out_path = Path.cwd() / out_path
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        fig.savefig(out_path, dpi=200)
+        print(f"Saved histogram PNG: {out_path}")
+    except Exception as e:
+        print(f"Failed to save PNG '{out_path}': {e}")
+
     plt.show()
 
 
@@ -472,7 +729,7 @@ def plot_resseq_paths(
     # Assign each residue to one of 4 colors based on SG proximity.
     # Seed the 4 color groups from the first file, then for residues in later files
     # inherit the color of the nearest previously-seen SG.
-    palette = ["#3A3D42", "#457B9D", "#2A9D8F", "#E63946"]
+    palette = PALETTE
 
     # Map residue key -> color index, plus an index of already-assigned SGs for nearest-neighbor lookup.
     color_by_residue: Dict[Tuple[str, str, str], int] = {}
@@ -718,7 +975,7 @@ def main() -> None:
     parser.add_argument(
         "--check",
         action="store_true",
-        help="Only scan --dir for files where CYS(CA+CB+SG) residue count != 4 and write .py3dmol.html for those outliers",
+        help="Only scan --dir for files where CYS(CA+CB+SG) residue count != 4 and write .html for those outliers",
     )
     parser.add_argument(
         "--open",
@@ -748,21 +1005,94 @@ def main() -> None:
 
         # Parse each file once. Histogram includes ALL files; outlier HTML only for outliers.
         atoms_by_path: Dict[Path, List[XyzAtom]] = {}
-        sg_bond_lengths_all: List[float] = []
-        sg_bond_sources_all: List[str] = []
-        files_with_lt4_sg = 0
         outliers: List[Path] = []
+
+        metric_specs: List[MetricSpec] = [
+            MetricSpec(
+                key="sg_center",
+                compute=lambda atoms: sg_bond_lengths_to_center(atoms, max_sgs=4),
+                expected_per_file=4,
+                summary_label="SG-to-center distances collected for histogram",
+                title="Histogram: Zn → CYS SG bond lengths",
+                xlabel="Distance from Zn to CYS SG (Å)",
+                out_png_name="Figures/zn_sg_distances_histogram.png",
+                color="#F4A261",
+                bins="auto",
+                unit="Å",
+            ),
+            MetricSpec(
+                key="cb_center",
+                compute=lambda atoms: cb_bond_lengths_to_center_selected_by_sg(atoms, max_residues=4),
+                expected_per_file=4,
+                summary_label="CB-to-center distances collected for histogram",
+                title="Histogram: Zn → CYS CB distances",
+                xlabel="Distance from Zn to CYS CB (Å)",
+                out_png_name="Figures/zn_cb_distances_histogram.png",
+                color=PALETTE[1],
+                bins=15,
+                unit="Å",
+            ),
+            MetricSpec(
+                key="ca_center",
+                compute=lambda atoms: ca_bond_lengths_to_center_selected_by_sg(atoms, max_residues=4),
+                expected_per_file=4,
+                summary_label="CA-to-center distances collected for histogram",
+                title="Histogram: Zn → CYS CA distances",
+                xlabel="Distance from Zn to CYS CA (Å)",
+                out_png_name="Figures/zn_ca_distances_histogram.png",
+                color=PALETTE[2],
+                bins=15,
+                unit="Å",
+            ),
+            MetricSpec(
+                key="sg_ca",
+                compute=lambda atoms: sg_ca_distances_selected_by_sg(atoms, max_residues=4),
+                expected_per_file=4,
+                summary_label="SG–CA distances collected for histogram",
+                title="Histogram: CYS SG–CA distances",
+                xlabel="Distance from CYS SG to CYS CA (Å)",
+                out_png_name="Figures/sg_ca_distances_histogram.png",
+                color=PALETTE[3],
+                bins=15,
+                unit="Å",
+            ),
+            MetricSpec(
+                key="cb_ca",
+                compute=lambda atoms: cb_ca_distances_selected_by_sg(atoms, max_residues=4),
+                expected_per_file=4,
+                summary_label="CB–CA distances collected for histogram",
+                title="Histogram: CYS CB–CA distances",
+                xlabel="Distance from CYS CB to CYS CA (Å)",
+                out_png_name="Figures/cb_ca_distances_histogram.png",
+                color=PALETTE[0],
+                bins=15,
+                unit="Å",
+            ),
+            MetricSpec(
+                key="sgcb_angle",
+                compute=lambda atoms: sg_cb_angle_vs_radial_selected_by_sg(atoms, max_residues=4),
+                expected_per_file=4,
+                summary_label="Angles collected for histogram (angle between origin→SG and SG→CB)",
+                title="Histogram: Zn→SG and SG→CB angle",
+                xlabel="Angle between (Zn→SG) and (SG→CB) (°)",
+                out_png_name="Figures/sg_cb_vs_radial_angle_histogram.png",
+                color="#6D597A",
+                bins=18,
+                unit="°",
+            ),
+        ]
+
+        metrics: Dict[str, MetricAccum] = {
+            spec.key: MetricAccum(values=[], sources=[])
+            for spec in metric_specs
+        }
 
         for p in all_xyz:
             atoms = parse_xyz_atoms(p)
             atoms_by_path[p] = atoms
 
-            # For histogram: take ONLY the 4 nearest SG distances (drops any 5th farther SG).
-            sg_dists = sg_bond_lengths_to_center(atoms, max_sgs=4)
-            if len(sg_dists) < 4:
-                files_with_lt4_sg += 1
-            sg_bond_lengths_all.extend(sg_dists)
-            sg_bond_sources_all.extend([p.name] * len(sg_dists))
+            for spec in metric_specs:
+                _accumulate_metric(metrics, spec, atoms, source_name=p.name)
 
             n = count_cys_residues_with_ca_cb_sg(atoms)
             if n != 4:
@@ -786,35 +1116,34 @@ def main() -> None:
                     xyz_text,
                     atoms,
                     title=p.name,
-                    out_html=p.with_suffix(".py3dmol.html"),
+                    out_html=p.with_suffix(".html"),
                 )
 
                 if args.open and num_open < max_open:
-                    out_html = p.with_suffix(".py3dmol.html")
+                    out_html = p.with_suffix(".html")
                     webbrowser.open(out_html.resolve().as_uri())
                     num_open += 1
 
         print(f"Outliers: [{len(outliers)}/{len(all_xyz)}]")
         print(f"Outliers with 3 residues: {outliers_with_3}")
         print(f"Outliers with 5 residues: {outliers_with_5}")
-        if sg_bond_lengths_all:
-            mean = sum(sg_bond_lengths_all) / len(sg_bond_lengths_all)
-            print(
-                "SG-to-center distances collected for histogram: "
-                f"{len(sg_bond_lengths_all)} values from {len(all_xyz)} file(s) "
-                f"(min={min(sg_bond_lengths_all):.3f} Å, max={max(sg_bond_lengths_all):.3f} Å, mean={mean:.3f} Å)"
-            )
-            if files_with_lt4_sg:
-                print(
-                    f"Note: {files_with_lt4_sg} file(s) had <4 CYS SG atoms; "
-                    "their histogram contribution is truncated."
-                )
+        for spec in metric_specs:
+            _print_metric_summary(spec, metrics[spec.key], total_files=len(all_xyz))
 
-        plot_sg_bond_length_histogram(
-            sg_bond_lengths_all,
-            sg_bond_sources_all,
-            title="Histogram: center → (4 nearest) CYS SG bond lengths\n(all files; outliers auto-trimmed)",
-        )
+        for spec in metric_specs:
+            acc = metrics[spec.key]
+            if not acc.values:
+                continue
+            plot_bond_length_histogram(
+                acc.values,
+                acc.sources,
+                title=spec.title,
+                xlabel=spec.xlabel,
+                out_png_name=spec.out_png_name,
+                bins=spec.bins,
+                color=spec.color,
+                unit=spec.unit,
+            )
         if args.open:
             print(f"Opened {min(num_open, max_open)}/{len(outliers)} HTML files (max {max_open}).")
 
@@ -841,7 +1170,7 @@ def main() -> None:
         single_concrete_file = p.exists() and p.is_file() and p.suffix.lower() == ".xyz"
 
     if not single_concrete_file and len(selected_paths) > 1:
-        resseq_out_html = xyz_dir / "resseq_paths.py3dmol.html"
+        resseq_out_html = Path("Figures/resseq_paths_py3dmol.html")
         plot_resseq_paths(
             atoms_by_source,
             title="origin → SG → CB → CA per RESSEQ",
@@ -858,7 +1187,7 @@ def main() -> None:
             xyz_text,
             atoms,
             title=f"{p.name}",
-            out_html=p.with_suffix(".py3dmol.html"),
+            out_html=p.with_suffix(".html"),
         )
 
     if args.open:
@@ -866,7 +1195,7 @@ def main() -> None:
         if resseq_out_html is not None:
             webbrowser.open(resseq_out_html.resolve().as_uri())
         else:
-            out_html = selected_paths[0].with_suffix(".py3dmol.html")
+            out_html = selected_paths[0].with_suffix(".html")
             webbrowser.open(out_html.resolve().as_uri())
 
 
@@ -890,6 +1219,6 @@ if __name__ == "__main__":
     ```bash
     uv run python ./scripts/xyz-val-plots.py --dir data/output/xyz_files --check
     ```
-    Add the `--open` flag to above if you want to oen a max of 5 html files for those outliers.
+    Add the `--open` flag to above if you want to open a max of 5 html files for those outliers.
     """
     main()

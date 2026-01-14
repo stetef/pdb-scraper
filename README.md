@@ -7,9 +7,10 @@ A modular, memory-efficient pipeline for searching, downloading, and extracting 
   2. DOWNLOAD - download pdb or cif files from id list file or SEARCH
   3. VALIDATE - parse and validate structures fall within validation specification
   4. GENERATE - for each validated structure:
-    - Extract clusters
-    - Extract alternate locations (altloc)
-    - Write cropped xyz file for each cluster, centered at each validated target atom site
+    
+  * Extract clusters
+  * Extract alternate locations (altloc)
+  * Write cropped xyz file for each cluster, centered at each validated target atom site
   5. PREPARE - prepare files for DFT calculations (in progress)
 
 ## Project Structure
