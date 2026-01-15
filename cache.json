@@ -1,0 +1,954 @@
+{
+  "runs": [
+    {
+      "pdb_path": "data/3cys1his/results/validated_structures/1h3n.pdb",
+      "pdb_id": "1h3n",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 6.0,
+      "clusters": [
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/1h3n_ZN_homo_d3.00_cluster2.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_path": "/private/var/folders/m7/j_sw73js0vn05bvsf1q94dqw0000gn/T/pytest-of-stetef/pytest-30/test_pipeline_with_search_and_0/temp/13rz.pdb",
+      "pdb_id": "13rz",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 3.0,
+      "clusters": [
+        {
+          "xyz_path": "/private/var/folders/m7/j_sw73js0vn05bvsf1q94dqw0000gn/T/pytest-of-stetef/pytest-30/test_pipeline_with_search_and_0/results/xyz_files/13rz_FAKE.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_path": "/private/var/folders/m7/j_sw73js0vn05bvsf1q94dqw0000gn/T/pytest-of-stetef/pytest-30/test_pipeline_with_search_and_0/temp/13sa.pdb",
+      "pdb_id": "13sa",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 3.0,
+      "clusters": [
+        {
+          "xyz_path": "/private/var/folders/m7/j_sw73js0vn05bvsf1q94dqw0000gn/T/pytest-of-stetef/pytest-30/test_pipeline_with_search_and_0/results/xyz_files/13sa_FAKE.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_path": "/private/var/folders/m7/j_sw73js0vn05bvsf1q94dqw0000gn/T/pytest-of-stetef/pytest-30/test_pipeline_end_to_end_mocke0/downloads/p000.pdb",
+      "pdb_id": "p000",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 3.0,
+      "clusters": [
+        {
+          "xyz_path": "/fake/P000_1.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_path": "/private/var/folders/m7/j_sw73js0vn05bvsf1q94dqw0000gn/T/pytest-of-stetef/pytest-30/test_pipeline_end_to_end_mocke0/downloads/p001.pdb",
+      "pdb_id": "p001",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 3.0,
+      "clusters": [
+        {
+          "xyz_path": "/fake/P001_1.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_path": "/private/var/folders/m7/j_sw73js0vn05bvsf1q94dqw0000gn/T/pytest-of-stetef/pytest-30/test_pipeline_end_to_end_mocke0/downloads/p002.pdb",
+      "pdb_id": "p002",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 3.0,
+      "clusters": [
+        {
+          "xyz_path": "/fake/P002_1.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_path": "/private/var/folders/m7/j_sw73js0vn05bvsf1q94dqw0000gn/T/pytest-of-stetef/pytest-30/test_pipeline_end_to_end_mocke0/downloads/p003.pdb",
+      "pdb_id": "p003",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 3.0,
+      "clusters": [
+        {
+          "xyz_path": "/fake/P003_1.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_id": "1abc",
+      "pdb_path": "path/to/1abc.pdb",
+      "clusters": []
+    },
+    {
+      "pdb_path": "/private/var/folders/m7/j_sw73js0vn05bvsf1q94dqw0000gn/T/pytest-of-stetef/pytest-31/test_pipeline_with_search_and_0/temp/1abc.pdb",
+      "pdb_id": "1abc",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 3.0,
+      "clusters": [
+        {
+          "xyz_path": "/private/var/folders/m7/j_sw73js0vn05bvsf1q94dqw0000gn/T/pytest-of-stetef/pytest-31/test_pipeline_with_search_and_0/results/xyz_files/1abc_FAKE.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_path": "/private/var/folders/m7/j_sw73js0vn05bvsf1q94dqw0000gn/T/pytest-of-stetef/pytest-31/test_pipeline_with_search_and_0/temp/2def.pdb",
+      "pdb_id": "2def",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 3.0,
+      "clusters": [
+        {
+          "xyz_path": "/private/var/folders/m7/j_sw73js0vn05bvsf1q94dqw0000gn/T/pytest-of-stetef/pytest-31/test_pipeline_with_search_and_0/results/xyz_files/2def_FAKE.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_path": "/private/var/folders/m7/j_sw73js0vn05bvsf1q94dqw0000gn/T/pytest-of-stetef/pytest-31/test_pipeline_end_to_end_mocke0/downloads/p000.pdb",
+      "pdb_id": "p000",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 3.0,
+      "clusters": [
+        {
+          "xyz_path": "/fake/P000_1.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_path": "/private/var/folders/m7/j_sw73js0vn05bvsf1q94dqw0000gn/T/pytest-of-stetef/pytest-31/test_pipeline_end_to_end_mocke0/downloads/p001.pdb",
+      "pdb_id": "p001",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 3.0,
+      "clusters": [
+        {
+          "xyz_path": "/fake/P001_1.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_path": "/private/var/folders/m7/j_sw73js0vn05bvsf1q94dqw0000gn/T/pytest-of-stetef/pytest-31/test_pipeline_end_to_end_mocke0/downloads/p002.pdb",
+      "pdb_id": "p002",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 3.0,
+      "clusters": [
+        {
+          "xyz_path": "/fake/P002_1.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_path": "/private/var/folders/m7/j_sw73js0vn05bvsf1q94dqw0000gn/T/pytest-of-stetef/pytest-31/test_pipeline_end_to_end_mocke0/downloads/p003.pdb",
+      "pdb_id": "p003",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 3.0,
+      "clusters": [
+        {
+          "xyz_path": "/fake/P003_1.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_id": "1abc",
+      "pdb_path": "path/to/1abc.pdb",
+      "clusters": []
+    },
+    {
+      "pdb_path": "/private/var/folders/m7/j_sw73js0vn05bvsf1q94dqw0000gn/T/pytest-of-stetef/pytest-32/test_pipeline_with_search_and_0/temp/1abc.pdb",
+      "pdb_id": "1abc",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 3.0,
+      "clusters": [
+        {
+          "xyz_path": "/private/var/folders/m7/j_sw73js0vn05bvsf1q94dqw0000gn/T/pytest-of-stetef/pytest-32/test_pipeline_with_search_and_0/results/xyz_files/1abc_FAKE.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_path": "/private/var/folders/m7/j_sw73js0vn05bvsf1q94dqw0000gn/T/pytest-of-stetef/pytest-32/test_pipeline_with_search_and_0/temp/2def.pdb",
+      "pdb_id": "2def",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 3.0,
+      "clusters": [
+        {
+          "xyz_path": "/private/var/folders/m7/j_sw73js0vn05bvsf1q94dqw0000gn/T/pytest-of-stetef/pytest-32/test_pipeline_with_search_and_0/results/xyz_files/2def_FAKE.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_path": "/private/var/folders/m7/j_sw73js0vn05bvsf1q94dqw0000gn/T/pytest-of-stetef/pytest-32/test_pipeline_end_to_end_mocke0/downloads/p000.pdb",
+      "pdb_id": "p000",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 3.0,
+      "clusters": [
+        {
+          "xyz_path": "/fake/P000_1.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_path": "/private/var/folders/m7/j_sw73js0vn05bvsf1q94dqw0000gn/T/pytest-of-stetef/pytest-32/test_pipeline_end_to_end_mocke0/downloads/p001.pdb",
+      "pdb_id": "p001",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 3.0,
+      "clusters": [
+        {
+          "xyz_path": "/fake/P001_1.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_path": "/private/var/folders/m7/j_sw73js0vn05bvsf1q94dqw0000gn/T/pytest-of-stetef/pytest-32/test_pipeline_end_to_end_mocke0/downloads/p002.pdb",
+      "pdb_id": "p002",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 3.0,
+      "clusters": [
+        {
+          "xyz_path": "/fake/P002_1.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_path": "/private/var/folders/m7/j_sw73js0vn05bvsf1q94dqw0000gn/T/pytest-of-stetef/pytest-32/test_pipeline_end_to_end_mocke0/downloads/p003.pdb",
+      "pdb_id": "p003",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 3.0,
+      "clusters": [
+        {
+          "xyz_path": "/fake/P003_1.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_id": "1abc",
+      "pdb_path": "path/to/1abc.pdb",
+      "clusters": []
+    },
+    {
+      "pdb_path": "data/3cys1his/results/validated_structures/1k4g.pdb",
+      "pdb_id": "1k4g",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 6.0,
+      "clusters": [
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/1k4g_ZN_homo_d3.00_cluster1.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_path": "data/3cys1his/results/validated_structures/1k4h.pdb",
+      "pdb_id": "1k4h",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 6.0,
+      "clusters": [
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/1k4h_ZN_homo_d3.00_cluster1.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_path": "/private/var/folders/m7/j_sw73js0vn05bvsf1q94dqw0000gn/T/pytest-of-stetef/pytest-33/test_pipeline_with_search_and_0/temp/1abc.pdb",
+      "pdb_id": "1abc",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 3.0,
+      "clusters": [
+        {
+          "xyz_path": "/private/var/folders/m7/j_sw73js0vn05bvsf1q94dqw0000gn/T/pytest-of-stetef/pytest-33/test_pipeline_with_search_and_0/results/xyz_files/1abc_FAKE.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_path": "/private/var/folders/m7/j_sw73js0vn05bvsf1q94dqw0000gn/T/pytest-of-stetef/pytest-33/test_pipeline_with_search_and_0/temp/2def.pdb",
+      "pdb_id": "2def",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 3.0,
+      "clusters": [
+        {
+          "xyz_path": "/private/var/folders/m7/j_sw73js0vn05bvsf1q94dqw0000gn/T/pytest-of-stetef/pytest-33/test_pipeline_with_search_and_0/results/xyz_files/2def_FAKE.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_path": "/private/var/folders/m7/j_sw73js0vn05bvsf1q94dqw0000gn/T/pytest-of-stetef/pytest-33/test_pipeline_end_to_end_mocke0/downloads/p000.pdb",
+      "pdb_id": "p000",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 3.0,
+      "clusters": [
+        {
+          "xyz_path": "/fake/P000_1.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_path": "/private/var/folders/m7/j_sw73js0vn05bvsf1q94dqw0000gn/T/pytest-of-stetef/pytest-33/test_pipeline_end_to_end_mocke0/downloads/p001.pdb",
+      "pdb_id": "p001",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 3.0,
+      "clusters": [
+        {
+          "xyz_path": "/fake/P001_1.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_path": "/private/var/folders/m7/j_sw73js0vn05bvsf1q94dqw0000gn/T/pytest-of-stetef/pytest-33/test_pipeline_end_to_end_mocke0/downloads/p002.pdb",
+      "pdb_id": "p002",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 3.0,
+      "clusters": [
+        {
+          "xyz_path": "/fake/P002_1.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_path": "/private/var/folders/m7/j_sw73js0vn05bvsf1q94dqw0000gn/T/pytest-of-stetef/pytest-33/test_pipeline_end_to_end_mocke0/downloads/p003.pdb",
+      "pdb_id": "p003",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 3.0,
+      "clusters": [
+        {
+          "xyz_path": "/fake/P003_1.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_id": "1abc",
+      "pdb_path": "path/to/1abc.pdb",
+      "clusters": []
+    },
+    {
+      "pdb_path": "data/3cys1his/results/validated_structures/13sb.pdb",
+      "pdb_id": "13sb",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 6.0,
+      "clusters": [
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13sb_ZN_homo_d3.00_cluster1.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13sb_ZN_homo_d3.00_cluster3.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13sb_ZN_homo_d3.00_cluster5_altlocLIGA.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13sb_ZN_homo_d3.00_cluster5_altlocLIGB.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13sb_ZN_homo_d3.00_cluster7.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_path": "data/3cys1his/results/validated_structures/13sc.pdb",
+      "pdb_id": "13sc",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 6.0,
+      "clusters": [
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13sc_ZN_homo_d3.00_cluster1.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13sc_ZN_homo_d3.00_cluster3.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13sc_ZN_homo_d3.00_cluster5_altlocLIGA.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13sc_ZN_homo_d3.00_cluster5_altlocLIGB.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13sc_ZN_homo_d3.00_cluster7.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_path": "data/3cys1his/results/validated_structures/13se.pdb",
+      "pdb_id": "13se",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 6.0,
+      "clusters": [
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13se_ZN_homo_d3.00_cluster1.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13se_ZN_homo_d3.00_cluster3.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13se_ZN_homo_d3.00_cluster5_altlocLIGA.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13se_ZN_homo_d3.00_cluster5_altlocLIGB.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13se_ZN_homo_d3.00_cluster7.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_path": "data/3cys1his/results/validated_structures/13sf.pdb",
+      "pdb_id": "13sf",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 6.0,
+      "clusters": [
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13sf_ZN_homo_d3.00_cluster1.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13sf_ZN_homo_d3.00_cluster3.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13sf_ZN_homo_d3.00_cluster5_altlocLIGA.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13sf_ZN_homo_d3.00_cluster5_altlocLIGB.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_path": "data/3cys1his/results/validated_structures/13si.pdb",
+      "pdb_id": "13si",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 6.0,
+      "clusters": [
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13si_ZN_homo_d3.00_cluster1.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13si_ZN_homo_d3.00_cluster3.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13si_ZN_homo_d3.00_cluster7.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_path": "data/3cys1his/results/validated_structures/13sj.pdb",
+      "pdb_id": "13sj",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 6.0,
+      "clusters": [
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13sj_ZN_homo_d3.00_cluster1.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13sj_ZN_homo_d3.00_cluster3.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13sj_ZN_homo_d3.00_cluster5_altlocLIGA.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13sj_ZN_homo_d3.00_cluster5_altlocLIGB.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13sj_ZN_homo_d3.00_cluster7.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_path": "data/3cys1his/results/validated_structures/13sk.pdb",
+      "pdb_id": "13sk",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 6.0,
+      "clusters": [
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13sk_ZN_homo_d3.00_cluster1.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13sk_ZN_homo_d3.00_cluster3.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13sk_ZN_homo_d3.00_cluster5_altlocLIGA.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13sk_ZN_homo_d3.00_cluster5_altlocLIGB.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13sk_ZN_homo_d3.00_cluster7.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_path": "data/3cys1his/results/validated_structures/13sl.pdb",
+      "pdb_id": "13sl",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 6.0,
+      "clusters": [
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13sl_ZN_homo_d3.00_cluster1.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13sl_ZN_homo_d3.00_cluster3.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13sl_ZN_homo_d3.00_cluster5_altlocLIGA.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13sl_ZN_homo_d3.00_cluster5_altlocLIGB.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13sl_ZN_homo_d3.00_cluster7.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_path": "data/3cys1his/results/validated_structures/13sm.pdb",
+      "pdb_id": "13sm",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 6.0,
+      "clusters": [
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13sm_ZN_homo_d3.00_cluster1.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13sm_ZN_homo_d3.00_cluster3.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13sm_ZN_homo_d3.00_cluster5_altlocLIGA.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13sm_ZN_homo_d3.00_cluster5_altlocLIGB.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13sm_ZN_homo_d3.00_cluster7.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_path": "data/3cys1his/results/validated_structures/13sn.pdb",
+      "pdb_id": "13sn",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 6.0,
+      "clusters": [
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13sn_ZN_homo_d3.00_cluster1.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13sn_ZN_homo_d3.00_cluster3.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13sn_ZN_homo_d3.00_cluster5_altlocLIGA.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13sn_ZN_homo_d3.00_cluster5_altlocLIGB.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13sn_ZN_homo_d3.00_cluster7.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_path": "data/3cys1his/results/validated_structures/13so.pdb",
+      "pdb_id": "13so",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 6.0,
+      "clusters": [
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13so_ZN_homo_d3.00_cluster1.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13so_ZN_homo_d3.00_cluster3.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13so_ZN_homo_d3.00_cluster5_altlocLIGA.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13so_ZN_homo_d3.00_cluster5_altlocLIGB.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13so_ZN_homo_d3.00_cluster7.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_path": "data/3cys1his/results/validated_structures/13sq.pdb",
+      "pdb_id": "13sq",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 6.0,
+      "clusters": [
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13sq_ZN_homo_d3.00_cluster1.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13sq_ZN_homo_d3.00_cluster3.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13sq_ZN_homo_d3.00_cluster5_altlocLIGA.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13sq_ZN_homo_d3.00_cluster5_altlocLIGB.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13sq_ZN_homo_d3.00_cluster7.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_path": "data/3cys1his/results/validated_structures/13ss.pdb",
+      "pdb_id": "13ss",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 6.0,
+      "clusters": [
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13ss_ZN_homo_d3.00_cluster1.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13ss_ZN_homo_d3.00_cluster3.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13ss_ZN_homo_d3.00_cluster5_altlocLIGA.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13ss_ZN_homo_d3.00_cluster5_altlocLIGB.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13ss_ZN_homo_d3.00_cluster7.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_path": "data/3cys1his/results/validated_structures/13su.pdb",
+      "pdb_id": "13su",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 6.0,
+      "clusters": [
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13su_ZN_homo_d3.00_cluster1.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13su_ZN_homo_d3.00_cluster3.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13su_ZN_homo_d3.00_cluster5_altlocLIGA.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13su_ZN_homo_d3.00_cluster5_altlocLIGB.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13su_ZN_homo_d3.00_cluster7.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_path": "data/3cys1his/results/validated_structures/13sv.pdb",
+      "pdb_id": "13sv",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 6.0,
+      "clusters": [
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13sv_ZN_homo_d3.00_cluster1.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13sv_ZN_homo_d3.00_cluster3.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13sv_ZN_homo_d3.00_cluster5_altlocLIGA.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13sv_ZN_homo_d3.00_cluster5_altlocLIGB.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13sv_ZN_homo_d3.00_cluster7.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_path": "data/3cys1his/results/validated_structures/13sy.pdb",
+      "pdb_id": "13sy",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 6.0,
+      "clusters": [
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13sy_ZN_homo_d3.00_cluster1.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13sy_ZN_homo_d3.00_cluster3.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13sy_ZN_homo_d3.00_cluster5_altlocLIGA.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13sy_ZN_homo_d3.00_cluster5_altlocLIGB.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13sy_ZN_homo_d3.00_cluster7.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_path": "data/3cys1his/results/validated_structures/13ta.pdb",
+      "pdb_id": "13ta",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 6.0,
+      "clusters": [
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13ta_ZN_homo_d3.00_cluster1.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13ta_ZN_homo_d3.00_cluster3.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13ta_ZN_homo_d3.00_cluster5_altlocLIGA.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13ta_ZN_homo_d3.00_cluster5_altlocLIGB.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13ta_ZN_homo_d3.00_cluster7.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_path": "data/3cys1his/results/validated_structures/13tb.pdb",
+      "pdb_id": "13tb",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 6.0,
+      "clusters": [
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13tb_ZN_homo_d3.00_cluster1.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13tb_ZN_homo_d3.00_cluster3.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13tb_ZN_homo_d3.00_cluster5_altlocLIGA.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13tb_ZN_homo_d3.00_cluster5_altlocLIGB.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/13tb_ZN_homo_d3.00_cluster7.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_path": "data/3cys1his/results/validated_structures/1a73.pdb",
+      "pdb_id": "1a73",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 6.0,
+      "clusters": [
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/1a73_ZN_homo_d3.00_cluster1.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/1a73_ZN_homo_d3.00_cluster2.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/1a73_ZN_homo_d3.00_cluster3.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/1a73_ZN_homo_d3.00_cluster4.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_path": "data/3cys1his/results/validated_structures/1a8h.pdb",
+      "pdb_id": "1a8h",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 6.0,
+      "clusters": [
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/1a8h_ZN_homo_d3.00_cluster1.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_path": "data/3cys1his/results/validated_structures/1btk.pdb",
+      "pdb_id": "1btk",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 6.0,
+      "clusters": [
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/1btk_ZN_homo_d3.00_cluster1.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/1btk_ZN_homo_d3.00_cluster2.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_path": "data/3cys1his/results/validated_structures/1cyq.pdb",
+      "pdb_id": "1cyq",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 6.0,
+      "clusters": [
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/1cyq_ZN_homo_d3.00_cluster1.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/1cyq_ZN_homo_d3.00_cluster2.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/1cyq_ZN_homo_d3.00_cluster3.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/1cyq_ZN_homo_d3.00_cluster4.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_path": "data/3cys1his/results/validated_structures/1d0q.pdb",
+      "pdb_id": "1d0q",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 6.0,
+      "clusters": [
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/1d0q_ZN_homo_d3.00_cluster1.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/1d0q_ZN_homo_d3.00_cluster2.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_path": "data/3cys1his/results/validated_structures/1efz.pdb",
+      "pdb_id": "1efz",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 6.0,
+      "clusters": [
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/1efz_ZN_homo_d3.00_cluster1.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_path": "data/3cys1his/results/validated_structures/1enu.pdb",
+      "pdb_id": "1enu",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 6.0,
+      "clusters": [
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/1enu_ZN_homo_d3.00_cluster1.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_path": "data/3cys1his/results/validated_structures/1evx.pdb",
+      "pdb_id": "1evx",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 6.0,
+      "clusters": [
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/1evx_ZN_homo_d3.00_cluster1.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/1evx_ZN_homo_d3.00_cluster2.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/1evx_ZN_homo_d3.00_cluster3.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/1evx_ZN_homo_d3.00_cluster4.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_path": "data/3cys1his/results/validated_structures/1f3e.pdb",
+      "pdb_id": "1f3e",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 6.0,
+      "clusters": [
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/1f3e_ZN_homo_d3.00_cluster1.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_path": "data/3cys1his/results/validated_structures/1fn9.pdb",
+      "pdb_id": "1fn9",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 6.0,
+      "clusters": [
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/1fn9_ZN_homo_d3.00_cluster1.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/1fn9_ZN_homo_d3.00_cluster2.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_path": "data/3cys1his/results/validated_structures/1g73.pdb",
+      "pdb_id": "1g73",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 6.0,
+      "clusters": [
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/1g73_ZN_homo_d3.00_cluster1.xyz"
+        },
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/1g73_ZN_homo_d3.00_cluster2.xyz"
+        }
+      ]
+    },
+    {
+      "pdb_path": "data/3cys1his/results/validated_structures/1h3n.pdb",
+      "pdb_id": "1h3n",
+      "target": "ZN",
+      "cutoff": 3.0,
+      "selection_radius": 6.0,
+      "clusters": [
+        {
+          "xyz_path": "data/3cys1his/output/xyz_files/1h3n_ZN_homo_d3.00_cluster2.xyz"
+        }
+      ]
+    }
+  ]
+}

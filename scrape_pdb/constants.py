@@ -70,6 +70,16 @@ PDB_RECORD_COLUMNS = {
 # Water residue names
 WATER_RESIDUES = {"HOH", "WAT"}
 
+# Elements considered plausible coordination donors for simple distance-based
+# coordination sphere detection. This intentionally excludes carbon so that
+# nearby ring/backbone carbons (e.g. HIS CE1) don't inflate coordination counts.
+COORDINATION_DONOR_ELEMENTS: Set[str] = {
+    # common protein / small-molecule donors
+    "N", "O", "S", "P", "SE",
+    # common anionic ligands in PDBs
+    "F", "CL", "BR", "I",
+}
+
 # CSV field names
 CLUSTERS_CSV_FIELDS = [
     "PDB", "CLUSTER", "CLUSTER_TYPE", "CENTER_IDX", 

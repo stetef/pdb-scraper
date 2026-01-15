@@ -1,0 +1,73 @@
+# Example search-mode config for PDB Scraper
+#
+# Common fields to customize:
+# - search_parameters:
+#     metal_ion: target metal
+#       e.g., "ZN", "FE", "MG"
+#     resolution_cutoff: max resolution (Å)
+#       lower = higher quality
+#     experimental_method: method filter
+#       e.g., "X-RAY DIFFRACTION" or "ALL"
+#     polymer_type: RCSB polymer filter
+#       e.g., "polypeptide(L)"
+#       Set to null for all types
+# - processing:
+#     batch_size: structures per batch
+#     parallel_workers: concurrent workers
+#     rate_limit_delay: API delay (sec)
+#     temp_directory: CIF download location
+#     cutoff/target/must_have/include_waters:
+#       clustering parameters
+# - output:
+#     results_database: output DB path
+#     checkpoint_file: checkpoint DB path
+#     log_file: log file path
+#     matched_structures_dir: CIF save dir
+#     output_dir: results output dir
+# - validation:
+#     coordination_distance_min/max: ranges
+#     coord: coordination string
+# - input_mode:
+#     "search" for query-driven discovery
+
+search_parameters:
+  metal_ion: "ZN"
+  resolution_cutoff: 2.0  #angstroms
+  experimental_method: "X-RAY DIFFRACTION"
+  polymer_type: null  # null := all; or use "polypeptide(L)"
+
+processing:
+  batch_size: 50
+  parallel_workers: 4
+  rate_limit_delay: 0.1
+  temp_directory: "./data/3cys1his/PDB-downloads"
+  max_downloads: 30
+  cutoff: 3.0
+  selection_radius: 6.0
+  target: "ZN"
+  metals_excluded: []
+  must_have: "S>=3,N>=1"
+  include_waters: false
+
+output:
+  results_database: "./data/3cys1his/results/summary.db"
+  checkpoint_file: "./data/3cys1his/results/checkpoint.db"
+  log_file: "./data/3cys1his/pipeline.log"
+  save_matching_structures: true
+  matched_structures_dir: "./data/3cys1his/results/validated_structures"
+  output_dir: "./data/3cys1his/output"
+
+validation:
+  coordination_distance_min: 2.0
+  coordination_distance_max: 3.2
+  ligand_requirements:
+    - resname: CYS
+      atom_names: [SG]
+      min_count: 3
+    - resname: HIS
+      atom_names: [ND1, NE2]
+      min_count: 1
+
+# Enable search mode
+input_mode: "search"
+log_level: "INFO"

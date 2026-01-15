@@ -65,10 +65,49 @@ class OutputConfig(BaseModel):
         if v is None: return None
         return Path(v)
 
+
+class LigandRequirement(BaseModel):
+    """Residue/atom-name based requirements on coordinating neighbors."""
+
+    resname: str
+    atom_names: Optional[List[str]] = None
+    min_count: int = 1
+
+    @field_validator("resname", mode="before")
+    @classmethod
+    def normalize_resname(cls, v: Any) -> str:
+        return str(v).strip().upper()
+
+    @field_validator("atom_names", mode="before")
+    @classmethod
+    def normalize_atom_names(cls, v: Any) -> Optional[List[str]]:
+        if v is None:
+            return None
+        if isinstance(v, str):
+            v = [v]
+        try:
+            out = [str(s).strip().upper() for s in v if str(s).strip()]
+        except Exception:
+            return None
+        return out or None
+
+    @field_validator("min_count", mode="before")
+    @classmethod
+    def normalize_min_count(cls, v: Any) -> int:
+        try:
+            n = int(v)
+        except Exception:
+            n = 1
+        return max(0, n)
+
+
 class ValidationConfig(BaseModel):
     coordination_distance_max: float = 2.8
     coordination_distance_min: float = 2.0
+    # Exact coord-string filter (legacy): e.g. {"1N3S"}
     coord: Optional[Set[str]] = None
+    # Residue-aware filter on coordinating neighbors: list of requirements that must all be met.
+    ligand_requirements: Optional[List[LigandRequirement]] = None
 
     @field_validator("coord", mode="before")
     @classmethod
@@ -82,6 +121,23 @@ class ValidationConfig(BaseModel):
         except Exception:
             return None
         return set(vals) if vals else None
+
+    @field_validator("ligand_requirements", mode="before")
+    @classmethod
+    def to_ligand_requirements(cls, v: Any) -> Optional[List[LigandRequirement]]:
+        if v is None:
+            return None
+        if isinstance(v, dict):
+            v = [v]
+        if not isinstance(v, list):
+            return None
+        out: List[LigandRequirement] = []
+        for item in v:
+            try:
+                out.append(LigandRequirement(**item) if isinstance(item, dict) else LigandRequirement(resname=str(item)))
+            except Exception:
+                continue
+        return out or None
 
 class PipelineConfig(BaseModel):
     search_parameters: SearchParameters

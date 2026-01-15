@@ -16,6 +16,7 @@ from .utils import _slice, connected_components, centroid
 from .config import PipelineConfig
 from .writer import ensure_csv_headers, write_altloc_report_header, write_clusters_csv_row, append_altloc_rows, write_xyz
 from .geometry import classify_geometry, coord_string
+from .validation import passes_ligand_requirements
 
 import logging
 
@@ -375,7 +376,8 @@ def process_pdb(
             must_have=config.must_have,
             coord_distance_min=config.validation.coordination_distance_min,
             coord_distance_max=config.validation.coordination_distance_max,
-            coord_filters=config.coord_filters
+            coord_filters=config.coord_filters,
+            ligand_requirements=config.validation.ligand_requirements,
         )
 
         if alt_written:
@@ -398,6 +400,12 @@ def process_pdb(
                                                                     config.validation.coordination_distance_min,
                                                                     config.validation.coordination_distance_max)
                         coord_neigh = apply_water_toggle(coord_neigh, include_waters=config.include_waters)
+                        if not passes_ligand_requirements(coord_neigh, config.validation.ligand_requirements):
+                            try:
+                                Path(path).unlink(missing_ok=True)
+                            except Exception:
+                                pass
+                            continue
                         geom, metrics, flags = classify_geometry(c, coord_neigh)
                         coord = coord_string(coord_neigh)
                         if config.coord_filters and coord not in config.coord_filters:
@@ -429,6 +437,12 @@ def process_pdb(
                                                                 config.validation.coordination_distance_min,
                                                                 config.validation.coordination_distance_max)
                     coord_neigh = apply_water_toggle(coord_neigh, include_waters=config.include_waters)
+                    if not passes_ligand_requirements(coord_neigh, config.validation.ligand_requirements):
+                        try:
+                            Path(path).unlink(missing_ok=True)
+                        except Exception:
+                            pass
+                        continue
                     geom, metrics, flags = classify_geometry(c, coord_neigh)
                     coord = coord_string(coord_neigh)
                     if config.coord_filters and coord not in config.coord_filters:
@@ -478,6 +492,8 @@ def process_pdb(
                     coord_neigh = select_coordinating_neighbors(c, selected,
                                                                 config.validation.coordination_distance_min,
                                                                 config.validation.coordination_distance_max)
+                    if not passes_ligand_requirements(coord_neigh, config.validation.ligand_requirements):
+                        continue
                     geom, metrics, flags = classify_geometry(c, coord_neigh)
                     coord = coord_string(coord_neigh)
                     if config.coord_filters and coord not in config.coord_filters:
@@ -506,6 +522,8 @@ def process_pdb(
                 coord_neigh = select_coordinating_neighbors(c, selected,
                                                             config.validation.coordination_distance_min,
                                                             config.validation.coordination_distance_max)
+                if not passes_ligand_requirements(coord_neigh, config.validation.ligand_requirements):
+                    continue
                 geom, metrics, flags = classify_geometry(c, coord_neigh)
                 coord = coord_string(coord_neigh)
                 if config.coord_filters and coord not in config.coord_filters:

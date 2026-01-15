@@ -9,6 +9,7 @@ from .models import Atom, MustHaveSpec
 from .writer import write_xyz
 from .cluster import apply_water_toggle, select_coordinating_neighbors
 from .geometry import coord_string
+from .validation import passes_ligand_requirements
 from .utils import dist
 
 import logging
@@ -55,7 +56,8 @@ def build_altloc_files_for_center(
         must_have: MustHaveSpec,
         coord_distance_min: float,
         coord_distance_max: float,
-        coord_filters: Optional[set[str]]) -> list[str]:
+        coord_filters: Optional[set[str]],
+        ligand_requirements: Optional[list[object]] = None) -> list[str]:
     """
     Implements Step 6 Situations 1–3 around the chosen center.
     Returns list of written XYZ file paths.
@@ -100,13 +102,16 @@ def build_altloc_files_for_center(
             if not must_have.passes([a for a in chosen_atoms if a.serial != center.serial]):
                 continue
             
-            # Coord filter on coordinating neighbors only
-            if coord_filters:
+            # Coord + ligand filter on coordinating neighbors only
+            if coord_filters or ligand_requirements:
                 coord_neigh = select_coordinating_neighbors(center, chosen_atoms, coord_distance_min, coord_distance_max)
                 coord_neigh = apply_water_toggle(coord_neigh, include_waters=include_waters)
-                coord_str = coord_string(coord_neigh)
-                if coord_str not in coord_filters:
+                if ligand_requirements and not passes_ligand_requirements(coord_neigh, ligand_requirements):
                     continue
+                if coord_filters:
+                    coord_str = coord_string(coord_neigh)
+                    if coord_str not in coord_filters:
+                        continue
 
             alt_tag = f"altlocLIG{lab}"
             xyz_name = f"{base_name_common}_{alt_tag}.xyz"
@@ -148,13 +153,16 @@ def build_altloc_files_for_center(
                 # Must-have on all cluster atoms (exclude center)
                 if not must_have.passes([a for a in chosen_atoms if a.serial != origin.serial]):
                     continue
-                # Coord filter on coordinating neighbors only
-                if coord_filters:
+                # Coord + ligand filter on coordinating neighbors only
+                if coord_filters or ligand_requirements:
                     coord_neigh = select_coordinating_neighbors(origin, chosen_atoms, coord_distance_min, coord_distance_max)
                     coord_neigh = apply_water_toggle(coord_neigh, include_waters=include_waters)
-                    coord_str = coord_string(coord_neigh)
-                    if coord_str not in coord_filters:
+                    if ligand_requirements and not passes_ligand_requirements(coord_neigh, ligand_requirements):
                         continue
+                    if coord_filters:
+                        coord_str = coord_string(coord_neigh)
+                        if coord_str not in coord_filters:
+                            continue
                 alt_tag = f"altloc{lab}"
                 xyz_name = f"{base_name_common}_{alt_tag}.xyz"
                 xyz_path = str(Path(out_dir) / "xyz_files" / xyz_name)
@@ -181,13 +189,16 @@ def build_altloc_files_for_center(
                 # Must-have on all cluster atoms
                 if not must_have.passes([a for a in chosen_atoms if a.serial != origin.serial]):
                     continue
-                # Coord filter on coordinating neighbors only
-                if coord_filters:
+                # Coord + ligand filter on coordinating neighbors only
+                if coord_filters or ligand_requirements:
                     coord_neigh = select_coordinating_neighbors(origin, chosen_atoms, coord_distance_min, coord_distance_max)
                     coord_neigh = apply_water_toggle(coord_neigh, include_waters=include_waters)
-                    coord_str = coord_string(coord_neigh)
-                    if coord_str not in coord_filters:
+                    if ligand_requirements and not passes_ligand_requirements(coord_neigh, ligand_requirements):
                         continue
+                    if coord_filters:
+                        coord_str = coord_string(coord_neigh)
+                        if coord_str not in coord_filters:
+                            continue
                 alt_tag = f"altloc{center.element.title()}{lab}"
                 xyz_name = f"{base_name_common}_{alt_tag}.xyz"
                 xyz_path = str(Path(out_dir) / "xyz_files" / xyz_name)

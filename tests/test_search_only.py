@@ -24,7 +24,7 @@ def test_search_only_save_ids():
     """
     # Setup paths
     repo_root = Path(__file__).resolve().parent.parent
-    config_path = repo_root / "examples" / "config.search.yaml"
+    config_path = repo_root / "example_configs" / "config.search.yaml"
     output_file = repo_root / "data" / "search_results_ids.txt"
     
     # Ensure config file exists
@@ -76,7 +76,8 @@ def test_search_only_save_ids():
     print(f"Results saved to: {output_file}")
     print(f"{'='*60}\n")
     
-    return pdb_ids
+    # Tests should return None; assertions above validate behavior.
+    return None
 
 
 if __name__ == "__main__":

@@ -62,7 +62,8 @@ def test_pipeline_with_search_and_network_mocks(tmp_path, monkeypatch, simple_pd
     cfg_path.write_text(yaml.dump(cfg))
 
     # Mock search_pdb to return two fake IDs
-    monkeypatch.setattr("scrape_pdb.downloader.search_pdb", lambda config: ["1abc", "2def"])
+    # run_pipeline (search mode) calls the symbol imported into scrape_pdb.main
+    monkeypatch.setattr("scrape_pdb.main.search_pdb", lambda config: ["1abc", "2def"])
 
     # Mock urllib.request.urlopen to return a fake PDB response
     import urllib.request
