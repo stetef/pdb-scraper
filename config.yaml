@@ -40,22 +40,22 @@ processing:
   batch_size: 50
   parallel_workers: 4
   rate_limit_delay: 0.1
-  temp_directory: "./data/3cys1his/PDB-downloads"
+  temp_directory: "./data/4cys-new/PDB-downloads"
   max_downloads: 30
   cutoff: 3.0
   selection_radius: 6.0
   target: "ZN"
   metals_excluded: []
-  must_have: "S>=3,N>=1"
+  must_have: "S>=4"
   include_waters: false
 
 output:
-  results_database: "./data/3cys1his/results/summary.db"
-  checkpoint_file: "./data/3cys1his/results/checkpoint.db"
-  log_file: "./data/3cys1his/pipeline.log"
+  results_database: "./data/4cys-new/results/summary.db"
+  checkpoint_file: "./data/4cys-new/results/checkpoint.db"
+  log_file: "./data/4cys-new/pipeline.log"
   save_matching_structures: true
-  matched_structures_dir: "./data/3cys1his/results/validated_structures"
-  output_dir: "./data/3cys1his/output"
+  matched_structures_dir: "./data/4cys-new/results/validated_structures"
+  output_dir: "./data/4cys-new/output"
 
 validation:
   coordination_distance_min: 2.0
@@ -63,10 +63,7 @@ validation:
   ligand_requirements:
     - resname: CYS
       atom_names: [SG]
-      min_count: 3
-    - resname: HIS
-      atom_names: [ND1, NE2]
-      min_count: 1
+      min_count: 4
 
 # Enable search mode
 input_mode: "search"

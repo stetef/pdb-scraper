@@ -5,6 +5,7 @@ import logging
 import sys
 from pathlib import Path
 import argparse
+from collections import Counter
 
 from .config import load_config, print_config_summary, create_example_config
 from .logger import setup_logger, PipelineLogger
@@ -15,6 +16,57 @@ from .parser import process_pdb
 from .writer import append_cache
 from .search import search_pdb
 from .writer import ensure_csv_headers, write_altloc_report_header
+
+
+def _log_running_rejection_stats(
+    logger: logging.Logger,
+    run_rejection_counts: Counter[str],
+    ligand_summary: list[dict] | None,
+    rejected_cn: Counter[int],
+    rejected_coord: Counter[str],
+    *,
+    heading: str,
+    max_rejections: int = 15,
+    max_seen_resnames: int = 10,
+    max_cn: int = 15,
+    max_coord: int = 15,
+) -> None:
+    if not run_rejection_counts and not ligand_summary and not rejected_cn and not rejected_coord:
+        return
+
+    logger.info(heading)
+
+    if run_rejection_counts:
+        logger.info("Rejection stats (counts are filter-events):")
+        for k, v in run_rejection_counts.most_common(max_rejections):
+            logger.info(f"  - {k}: {v}")
+
+    if rejected_cn:
+        logger.info("Coordination Numbers (CN) of REJECTED clusters:")
+        for cn, count in rejected_cn.most_common(max_cn):
+            logger.info(f"  - CN={cn}: {count}")
+    
+    if rejected_coord:
+        logger.info("Coord strings of REJECTED clusters:")
+        for coord, count in rejected_coord.most_common(max_coord):
+            logger.info(f"  - {coord}: {count}")
+
+        logger.info("Selected coord strings (running totals):")
+        for coord in ("2N2S", "3N1S", "4N"):
+            logger.info(f"  - {coord}: {rejected_coord.get(coord, 0)}")
+
+    if ligand_summary:
+        logger.info("Ligand-requirements diagnostics (helps catch residue-name variants):")
+        for i, item in enumerate(ligand_summary, start=1):
+            expected = ",".join(item["expected_resnames"]) or "<none>"
+            atoms = ",".join(item["atom_names"]) or "<any>"
+            miss = item["missing"]
+            mismatch = item["naming_mismatch"]
+            logger.info(f"  - Req {i}: resnames=[{expected}] atom_names=[{atoms}] min_count={item['min_count']}")
+            logger.info(f"    missing={miss} naming_mismatch={mismatch}")
+            top = item["seen_resnames_for_atom_names"].most_common(max_seen_resnames)
+            if top:
+                logger.info("    top_seen_resnames_for_atom_names=" + ", ".join(f"{r}:{c}" for r, c in top))
 
 
 def run_pipeline(config_path: str, verbose: bool = False) -> int:
@@ -64,6 +116,24 @@ def run_pipeline(config_path: str, verbose: bool = False) -> int:
         # Track how many PDBs we've kept (successfully validated)
         max_to_keep = config.processing.max_downloads or float('inf')
         kept_count = checkpoint.get_kept_count()
+
+        # Aggregate rejection stats for this run (helps tune ligand requirement resnames).
+        run_rejection_counts: Counter[str] = Counter()
+        rejected_cn: Counter[int] = Counter()
+        rejected_coord: Counter[str] = Counter()
+        ligand_summary = None
+        if config.validation.ligand_requirements:
+            ligand_summary = [
+                {
+                    "expected_resnames": list(getattr(req, "resnames", None) or ([getattr(req, "resname", None)] if getattr(req, "resname", None) else [])),
+                    "atom_names": list(getattr(req, "atom_names", None) or []),
+                    "min_count": int(getattr(req, "min_count", 1)),
+                    "missing": 0,
+                    "naming_mismatch": 0,
+                    "seen_resnames_for_atom_names": Counter(),
+                }
+                for req in config.validation.ligand_requirements
+            ]
         
         logger.info(f"Already kept {kept_count} structures from previous runs")
         logger.info(f"Target: keep up to {max_to_keep} total structures")
@@ -76,10 +146,14 @@ def run_pipeline(config_path: str, verbose: bool = False) -> int:
         # In search mode, cache the full candidate list once per run.
         cached_search_ids: list[str] | None = None
 
+        batch_num = 0
+
         while kept_count < max_to_keep:
+            batch_num += 1
+            kept_before_batch = kept_count
             # Download next batch
             logger.info("")
-            logger.info(f"=== Downloading next batch (kept so far: {kept_count}/{max_to_keep}) ===")
+            logger.info(f"=== Downloading batch {batch_num} (kept so far: {kept_count}/{max_to_keep}) ===")
             
             batch_limit = config.processing.batch_size
             if max_to_keep != float('inf'):
@@ -150,10 +224,35 @@ def run_pipeline(config_path: str, verbose: bool = False) -> int:
                     checkpoint.update_status(pdb_id, "in_progress")
 
                     with PipelineLogger(logger, pdb_id) as pdb_log:
-                        written = process_pdb(
+                        result = process_pdb(
                             pdb_path=source_path,
                             config=config
                         )
+
+                        if isinstance(result, tuple) and len(result) == 2:
+                            written, pdb_stats = result
+                        else:
+                            written, pdb_stats = result, None
+
+                        # Aggregate stats (best-effort; doesn't affect pipeline outcomes)
+                        try:
+                            if isinstance(pdb_stats, dict):
+                                for k, v in (pdb_stats.get("rejections") or {}).items():
+                                    run_rejection_counts[str(k)] += int(v)
+                                for cn, count in (pdb_stats.get("rejected_cn_distribution") or {}).items():
+                                    rejected_cn[int(cn)] += int(count)
+                                for coord, count in (pdb_stats.get("rejected_coord_distribution") or {}).items():
+                                    rejected_coord[str(coord)] += int(count)
+                                if ligand_summary and pdb_stats.get("ligand_requirements"):
+                                    per_req = pdb_stats["ligand_requirements"].get("per_req") or []
+                                    for i, pr in enumerate(per_req):
+                                        if i >= len(ligand_summary):
+                                            break
+                                        ligand_summary[i]["missing"] += int(pr.get("missing", 0))
+                                        ligand_summary[i]["naming_mismatch"] += int(pr.get("naming_mismatch", 0))
+                                        ligand_summary[i]["seen_resnames_for_atom_names"].update(pr.get("seen_resnames_for_atom_names", {}))
+                        except Exception:
+                            pass
 
                         pdb_log.log_clusters(len(written))
 
@@ -217,6 +316,19 @@ def run_pipeline(config_path: str, verbose: bool = False) -> int:
                         shutil.rmtree(p)
                 except Exception:
                     logger.debug(f"Failed removing {p}")
+
+            # Log running stats at the end of each batch (useful for diagnosing low-yield motifs)
+            batch_kept = kept_count - kept_before_batch
+            logger.info("")
+            logger.info(f"=== Batch {batch_num} complete: processed={len(batch_sources)} kept={batch_kept} total_kept={kept_count}/{max_to_keep} ===")
+            _log_running_rejection_stats(
+                logger,
+                run_rejection_counts,
+                ligand_summary,
+                rejected_cn,
+                rejected_coord,
+                heading="Running stats (this run so far):",
+            )
             
             # Check if we've reached our target
             if kept_count >= max_to_keep:
@@ -235,6 +347,19 @@ def run_pipeline(config_path: str, verbose: bool = False) -> int:
         logger.info(f"Total PDBs validated: {kept_count}")
         logger.info(f"Total XYZ files written: {len(all_written)}")
         logger.info(f"Failed: {len(failed_pdbs)}")
+
+        _log_running_rejection_stats(
+            logger,
+            run_rejection_counts,
+            ligand_summary,
+            rejected_cn,
+            rejected_coord,
+            heading="Final stats (this run):",
+            max_rejections=999999,
+            max_seen_resnames=20,
+            max_cn=30,
+            max_coord=30,
+        )
         logger.info("")
         logger.info("Output files:")
         if config.output.save_matching_structures:

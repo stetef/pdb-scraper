@@ -93,8 +93,10 @@ def test_config_parses_ligand_requirements(tmp_path):
     reqs = config.validation.ligand_requirements
     assert reqs is not None and len(reqs) == 2
     assert reqs[0].resname == "CYS"
+    assert reqs[0].resnames == ["CYS"]
     assert reqs[0].atom_names == ["SG"]
     assert reqs[0].min_count == 3
     assert reqs[1].resname == "HIS"
+    assert reqs[1].resnames == ["HIS"]
     assert reqs[1].atom_names == ["ND1", "NE2"]
     assert reqs[1].min_count == 1

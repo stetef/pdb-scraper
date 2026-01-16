@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Union
 import yaml
-from pydantic import BaseModel, Field, field_validator, ConfigDict
+from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict
 
 from .models import MustHaveSpec, parse_must_have
 
@@ -69,14 +69,32 @@ class OutputConfig(BaseModel):
 class LigandRequirement(BaseModel):
     """Residue/atom-name based requirements on coordinating neighbors."""
 
-    resname: str
+    # Backwards compatible single residue name
+    resname: Optional[str] = None
+    # Optional list of residue names accepted for this requirement
+    resnames: Optional[List[str]] = None
     atom_names: Optional[List[str]] = None
     min_count: int = 1
 
     @field_validator("resname", mode="before")
     @classmethod
     def normalize_resname(cls, v: Any) -> str:
+        if v is None:
+            return None
         return str(v).strip().upper()
+
+    @field_validator("resnames", mode="before")
+    @classmethod
+    def normalize_resnames(cls, v: Any) -> Optional[List[str]]:
+        if v is None:
+            return None
+        if isinstance(v, str):
+            v = [v]
+        try:
+            out = [str(s).strip().upper() for s in v if str(s).strip()]
+        except Exception:
+            return None
+        return out or None
 
     @field_validator("atom_names", mode="before")
     @classmethod
@@ -99,6 +117,18 @@ class LigandRequirement(BaseModel):
         except Exception:
             n = 1
         return max(0, n)
+
+    @model_validator(mode="after")
+    def fill_resnames(self):
+        # If only resname is provided, populate resnames.
+        if not self.resnames:
+            if self.resname:
+                self.resnames = [self.resname]
+        else:
+            # Ensure resname is set consistently for older code/printing.
+            if not self.resname and self.resnames:
+                self.resname = self.resnames[0]
+        return self
 
 
 class ValidationConfig(BaseModel):

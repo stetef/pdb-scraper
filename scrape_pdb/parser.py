@@ -2,6 +2,7 @@
 """PDB parsing functions."""
 
 from typing import Optional, Iterable
+from collections import Counter
 import re
 import os
 from pathlib import Path
@@ -16,7 +17,7 @@ from .utils import _slice, connected_components, centroid
 from .config import PipelineConfig
 from .writer import ensure_csv_headers, write_altloc_report_header, write_clusters_csv_row, append_altloc_rows, write_xyz
 from .geometry import classify_geometry, coord_string
-from .validation import passes_ligand_requirements
+from .validation import passes_ligand_requirements, diagnose_ligand_requirements
 
 import logging
 
@@ -270,7 +271,7 @@ def iter_altloc_metal_records(pdb_path: str, metal_set: set[str]) -> Iterable[At
 def process_pdb(
     pdb_path: str,
     config: PipelineConfig
-) -> list[str]:
+) -> tuple[list[str], dict]:
     """
     Process a single PDB file.
     
@@ -280,15 +281,24 @@ def process_pdb(
         logger: Logger instance
     
     Returns:
-        List of written XYZ file paths
+        (List of written XYZ file paths, stats dict)
     """
     base_id = os.path.splitext(os.path.basename(pdb_path))[0]
     logger.info(f"[=] Processing {base_id} …")
 
+    stats: dict = {
+        "pdb_id": base_id,
+        "rejections": Counter(),
+        "ligand_requirements": None,
+        "rejected_cn_distribution": Counter(),
+        "rejected_coord_distribution": Counter(),
+    }
+
     raw_atoms = load_atoms_auto(pdb_path, first_model_only=False)
     if not raw_atoms:
         logger.info(f"[!] No atoms parsed in {pdb_path}")
-        return []
+        stats["rejections"]["no_atoms"] += 1
+        return [], stats
     atoms = collapse_altloc(raw_atoms, policy="prefer_blank_or_A")
 
     # Resolution
@@ -298,10 +308,12 @@ def process_pdb(
     if config.search_parameters and config.search_parameters.resolution_cutoff is not None:
         if resolution_angs is None:
             logger.info(f"  [i] Skipping {base_id}: resolution is NA but resolution_cutoff={config.search_parameters.resolution_cutoff} Å is specified")
-            return []
+            stats["rejections"]["resolution_na"] += 1
+            return [], stats
         if resolution_angs > config.search_parameters.resolution_cutoff:
             logger.info(f"  [i] Skipping {base_id}: resolution {resolution_angs:.2f} Å exceeds cutoff {config.search_parameters.resolution_cutoff} Å")
-            return []
+            stats["rejections"]["resolution_above_cutoff"] += 1
+            return [], stats
 
     # Metals universe (after exclusions)
     # metal_set = set(ALL_METALS) - config.metals_excluded
@@ -311,6 +323,7 @@ def process_pdb(
     metals_all = [a for a in atoms if a.record == "HETATM" and a.element.upper() in metal_set]
     if not metals_all:
         logger.info("  [i] No metals found (after exclusions).")
+        stats["rejections"]["no_metals"] += 1
     target_upper = config.target.upper()
     # Determine target element from first target occurrence if present
     targ_elems = [a.element.upper() for a in atoms if a.record == "HETATM" and a.atom_name.upper() == target_upper]
@@ -332,11 +345,27 @@ def process_pdb(
     written_paths: list[str] = []
     cluster_counter = 0
 
+    # Prepare ligand-requirements aggregation (if configured)
+    if config.validation.ligand_requirements:
+        stats["ligand_requirements"] = {
+            "per_req": [
+                {
+                    "missing": 0,
+                    "naming_mismatch": 0,
+                    "seen_resnames_for_atom_names": Counter(),
+                }
+                for _ in config.validation.ligand_requirements
+            ]
+        }
+
+    found_target_component = False
+
     for comp in comps:
         comp_metals = [metals_all[i] for i in comp]
         # Component must contain at least one target atom by atom_name
         if not any(m.atom_name.upper() == target_upper for m in comp_metals):
             continue
+        found_target_component = True
 
         cluster_counter += 1
         comp_type = determine_cluster_type(comp_metals, target_upper, target_element)
@@ -392,15 +421,34 @@ def process_pdb(
                         # Get all neighbors within selection_radius for must_have filter
                         neigh_all = select_neighbors_from(c, selected_union, config.selection_radius)
                         neigh_all = apply_water_toggle(neigh_all, include_waters=config.include_waters)
-                        # Must-have filter on all cluster atoms
-                        if not config.must_have.passes(neigh_all):
-                            continue
                         # Get coordinating neighbors for geometry and coord filter
                         coord_neigh = select_coordinating_neighbors(c, selected_union,
                                                                     config.validation.coordination_distance_min,
                                                                     config.validation.coordination_distance_max)
                         coord_neigh = apply_water_toggle(coord_neigh, include_waters=config.include_waters)
+                        cn_diag = len(coord_neigh)
+                        coord_diag = coord_string(coord_neigh)
+                        # Must-have filter on all cluster atoms
+                        if not config.must_have.passes(neigh_all):
+                            stats["rejections"]["must_have"] += 1
+                            stats["rejected_cn_distribution"][cn_diag] += 1
+                            stats["rejected_coord_distribution"][coord_diag] += 1
+                            continue
                         if not passes_ligand_requirements(coord_neigh, config.validation.ligand_requirements):
+                            stats["rejections"]["ligand_requirements"] += 1
+                            stats["rejected_cn_distribution"][cn_diag] += 1
+                            stats["rejected_coord_distribution"][coord_diag] += 1
+                            if stats.get("ligand_requirements") and config.validation.ligand_requirements:
+                                diag = diagnose_ligand_requirements(coord_neigh, config.validation.ligand_requirements)
+                                for d in diag:
+                                    i = d["req_index"]
+                                    if d["count_allowed"] < d["min_count"]:
+                                        stats["ligand_requirements"]["per_req"][i]["missing"] += 1
+                                        if d["count_any_resname"] >= d["min_count"]:
+                                            stats["ligand_requirements"]["per_req"][i]["naming_mismatch"] += 1
+                                    stats["ligand_requirements"]["per_req"][i]["seen_resnames_for_atom_names"].update(
+                                        {k: int(v) for k, v in d["resname_counts_for_atom_names"].items()}
+                                    )
                             try:
                                 Path(path).unlink(missing_ok=True)
                             except Exception:
@@ -409,6 +457,7 @@ def process_pdb(
                         geom, metrics, flags = classify_geometry(c, coord_neigh)
                         coord = coord_string(coord_neigh)
                         if config.coord_filters and coord not in config.coord_filters:
+                            stats["rejections"]["coord_string"] += 1
                             try:
                                 Path(path).unlink(missing_ok=True)
                             except Exception:
@@ -430,14 +479,41 @@ def process_pdb(
                     # Get all neighbors within selection_radius for must_have filter
                     neigh_all = select_neighbors_from(c, selected_union, config.selection_radius)
                     neigh_all = apply_water_toggle(neigh_all, include_waters=config.include_waters)
+                    
+                    # Always compute coordination info for diagnostics before filtering
+                    coord_neigh_diag = select_coordinating_neighbors(c, selected_union,
+                                                                config.validation.coordination_distance_min,
+                                                                config.validation.coordination_distance_max)
+                    coord_neigh_diag = apply_water_toggle(coord_neigh_diag, include_waters=config.include_waters)
+                    cn_diag = len(coord_neigh_diag)
+                    coord_diag = coord_string(coord_neigh_diag)
+                    
                     if not config.must_have.passes(neigh_all):
+                        stats["rejections"]["must_have"] += 1
+                        stats["rejected_cn_distribution"][cn_diag] += 1
+                        stats["rejected_coord_distribution"][coord_diag] += 1
                         continue
                     # Get coordinating neighbors for geometry and coord filter
                     coord_neigh = select_coordinating_neighbors(c, selected_union,
                                                                 config.validation.coordination_distance_min,
                                                                 config.validation.coordination_distance_max)
-                    coord_neigh = apply_water_toggle(coord_neigh, include_waters=config.include_waters)
                     if not passes_ligand_requirements(coord_neigh, config.validation.ligand_requirements):
+                        stats["rejections"]["ligand_requirements"] += 1
+                        stats["rejected_cn_distribution"][cn_diag] += 1
+                        stats["rejected_coord_distribution"][coord_diag] += 1
+                        stats["rejected_cn_distribution"][cn_diag] += 1
+                        stats["rejected_coord_distribution"][coord_diag] += 1
+                        if stats.get("ligand_requirements") and config.validation.ligand_requirements:
+                            diag = diagnose_ligand_requirements(coord_neigh, config.validation.ligand_requirements)
+                            for d in diag:
+                                i = d["req_index"]
+                                if d["count_allowed"] < d["min_count"]:
+                                    stats["ligand_requirements"]["per_req"][i]["missing"] += 1
+                                    if d["count_any_resname"] >= d["min_count"]:
+                                        stats["ligand_requirements"]["per_req"][i]["naming_mismatch"] += 1
+                                stats["ligand_requirements"]["per_req"][i]["seen_resnames_for_atom_names"].update(
+                                    {k: int(v) for k, v in d["resname_counts_for_atom_names"].items()}
+                                )
                         try:
                             Path(path).unlink(missing_ok=True)
                         except Exception:
@@ -446,6 +522,7 @@ def process_pdb(
                     geom, metrics, flags = classify_geometry(c, coord_neigh)
                     coord = coord_string(coord_neigh)
                     if config.coord_filters and coord not in config.coord_filters:
+                        stats["rejections"]["coord_string"] += 1
                         try:
                             Path(path).unlink(missing_ok=True)
                         except Exception:
@@ -454,7 +531,6 @@ def process_pdb(
                     # OTHER_METALS for multi_hetero
                     other = ""
                     if comp_type == "multi_hetero":
-                        from collections import Counter
                         metals_other = [m.element.upper() for m in centers if m.serial != c.serial]
                         cc = Counter(metals_other)
                         other = ", ".join(f"{k}:{v}" for k,v in sorted(cc.items()))
@@ -486,17 +562,38 @@ def process_pdb(
                 for idx_c, c in enumerate(centers, start=1):
                     # Get all neighbors within selection_radius for must_have filter
                     neigh_all = select_neighbors_from(c, selected, config.selection_radius)
-                    if not config.must_have.passes(neigh_all):
-                        continue
                     # Get coordinating neighbors for geometry and coord filter
                     coord_neigh = select_coordinating_neighbors(c, selected,
                                                                 config.validation.coordination_distance_min,
                                                                 config.validation.coordination_distance_max)
+                    cn_diag = len(coord_neigh)
+                    coord_diag = coord_string(coord_neigh)
+                    
+                    if not config.must_have.passes(neigh_all):
+                        stats["rejections"]["must_have"] += 1
+                        stats["rejected_cn_distribution"][cn_diag] += 1
+                        stats["rejected_coord_distribution"][coord_diag] += 1
+                        continue
                     if not passes_ligand_requirements(coord_neigh, config.validation.ligand_requirements):
+                        stats["rejections"]["ligand_requirements"] += 1
+                        stats["rejected_cn_distribution"][cn_diag] += 1
+                        stats["rejected_coord_distribution"][coord_diag] += 1
+                        if stats.get("ligand_requirements") and config.validation.ligand_requirements:
+                            diag = diagnose_ligand_requirements(coord_neigh, config.validation.ligand_requirements)
+                            for d in diag:
+                                i = d["req_index"]
+                                if d["count_allowed"] < d["min_count"]:
+                                    stats["ligand_requirements"]["per_req"][i]["missing"] += 1
+                                    if d["count_any_resname"] >= d["min_count"]:
+                                        stats["ligand_requirements"]["per_req"][i]["naming_mismatch"] += 1
+                                stats["ligand_requirements"]["per_req"][i]["seen_resnames_for_atom_names"].update(
+                                    {k: int(v) for k, v in d["resname_counts_for_atom_names"].items()}
+                                )
                         continue
                     geom, metrics, flags = classify_geometry(c, coord_neigh)
                     coord = coord_string(coord_neigh)
                     if config.coord_filters and coord not in config.coord_filters:
+                        stats["rejections"]["coord_string"] += 1
                         continue
                     if not wrote_xyz:
                         write_xyz(xyz_path, base_id, cluster_counter, target_upper, config.selection_radius,
@@ -516,17 +613,38 @@ def process_pdb(
                 c = center_for_alt
                 # Get all neighbors within selection_radius for must_have filter
                 neigh_all = select_neighbors_from(c, selected, config.selection_radius)
-                if not config.must_have.passes(neigh_all):
-                    continue
                 # Get coordinating neighbors for geometry and coord filter
                 coord_neigh = select_coordinating_neighbors(c, selected,
                                                             config.validation.coordination_distance_min,
                                                             config.validation.coordination_distance_max)
+                cn_diag = len(coord_neigh)
+                coord_diag = coord_string(coord_neigh)
+                
+                if not config.must_have.passes(neigh_all):
+                    stats["rejections"]["must_have"] += 1
+                    stats["rejected_cn_distribution"][cn_diag] += 1
+                    stats["rejected_coord_distribution"][coord_diag] += 1
+                    continue
                 if not passes_ligand_requirements(coord_neigh, config.validation.ligand_requirements):
+                    stats["rejections"]["ligand_requirements"] += 1
+                    stats["rejected_cn_distribution"][cn_diag] += 1
+                    stats["rejected_coord_distribution"][coord_diag] += 1
+                    if stats.get("ligand_requirements") and config.validation.ligand_requirements:
+                        diag = diagnose_ligand_requirements(coord_neigh, config.validation.ligand_requirements)
+                        for d in diag:
+                            i = d["req_index"]
+                            if d["count_allowed"] < d["min_count"]:
+                                stats["ligand_requirements"]["per_req"][i]["missing"] += 1
+                                if d["count_any_resname"] >= d["min_count"]:
+                                    stats["ligand_requirements"]["per_req"][i]["naming_mismatch"] += 1
+                            stats["ligand_requirements"]["per_req"][i]["seen_resnames_for_atom_names"].update(
+                                {k: int(v) for k, v in d["resname_counts_for_atom_names"].items()}
+                            )
                     continue
                 geom, metrics, flags = classify_geometry(c, coord_neigh)
                 coord = coord_string(coord_neigh)
                 if config.coord_filters and coord not in config.coord_filters:
+                    stats["rejections"]["coord_string"] += 1
                     continue
                 write_xyz(xyz_path, base_id, cluster_counter, target_upper, config.selection_radius,
                           ("centroid" if len(centers)>1 else "single_center"), c_centroid,
@@ -534,7 +652,6 @@ def process_pdb(
                 written_paths.append(xyz_path)
                 other = ""
                 if comp_type == "multi_hetero":
-                    from collections import Counter
                     metals_other = [m.element.upper() for m in centers if m.serial != c.serial]
                     cc = Counter(metals_other)
                     other = ", ".join(f"{k}:{v}" for k,v in sorted(cc.items()))
@@ -563,4 +680,13 @@ def process_pdb(
                                  a.resname, a.chain, a.resseq, a.x, a.y, a.z, cluster_counter, comp_type])
         append_altloc_rows(alt_rows, config)
 
-    return written_paths
+    if not found_target_component:
+        stats["rejections"]["no_target_component"] += 1
+
+    # Convert Counters to plain dicts for JSON-serializable consumption in caller.
+    stats["rejections"] = dict(stats["rejections"])
+    if stats.get("ligand_requirements"):
+        for per in stats["ligand_requirements"]["per_req"]:
+            per["seen_resnames_for_atom_names"] = dict(per["seen_resnames_for_atom_names"])
+
+    return written_paths, stats
