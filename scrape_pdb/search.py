@@ -59,15 +59,37 @@ def search_pdb(config: PipelineConfig) -> list[str]:
         })
 
     # 4. Polymer Type
-    if params.polymer_type is not None and params.polymer_type.upper() != "ALL":
+    if params.polymer_type is not None and str(params.polymer_type).strip().upper() != "ALL":
+        pt_raw = str(params.polymer_type).strip()
+        pt_upper = pt_raw.upper()
+
+        # RCSB has two common representations:
+        # - entity_poly.rcsb_entity_polymer_type: coarse buckets like "Protein", "DNA", "RNA"
+        # - entity_poly.type: PDBx/mmCIF polymer types like "polypeptide(L)"
+        # Users often provide the latter; handle both.
+        coarse = {"PROTEIN", "DNA", "RNA", "NA-HYBRID", "OTHER"}
+        if "(" in pt_raw or ")" in pt_raw or pt_upper not in coarse:
+            # Assume a PDBx/mmCIF style polymer type (case-sensitive in practice)
+            attr = "entity_poly.type"
+            value = pt_raw
+        else:
+            attr = "entity_poly.rcsb_entity_polymer_type"
+            # Preserve canonical casing for known values
+            if pt_upper == "PROTEIN":
+                value = "Protein"
+            elif pt_upper == "NA-HYBRID":
+                value = "NA-hybrid"
+            else:
+                value = pt_upper
+
         query_nodes.append({
             "type": "terminal",
             "service": "text",
             "parameters": {
-                "attribute": "entity_poly.rcsb_entity_polymer_type",
+                "attribute": attr,
                 "operator": "exact_match",
-                "value": params.polymer_type.upper()
-            }
+                "value": value,
+            },
         })
 
     query = {

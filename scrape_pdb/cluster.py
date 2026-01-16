@@ -4,7 +4,7 @@
 from typing import Optional
 
 from .models import Atom
-from .constants import WATER_RESIDUES
+from .constants import WATER_RESIDUES, COORDINATION_DONOR_ELEMENTS
 from .utils import dist
 import logging
 
@@ -56,6 +56,10 @@ def select_coordinating_neighbors(center: Atom, atoms: list[Atom], min_dist: flo
     coordinating = []
     for a in atoms:
         if a.serial == center.serial:
+            continue
+        # Ignore non-donor elements (e.g. carbons within a generous max_dist)
+        elem = (a.element or "").strip().upper()
+        if elem and elem not in COORDINATION_DONOR_ELEMENTS:
             continue
         d = dist(a.coord, center.coord)
         if min_dist <= d <= max_dist:

@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Union
 import yaml
-from pydantic import BaseModel, Field, field_validator, ConfigDict
+from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict
 
 from .models import MustHaveSpec, parse_must_have
 
@@ -65,10 +65,79 @@ class OutputConfig(BaseModel):
         if v is None: return None
         return Path(v)
 
+
+class LigandRequirement(BaseModel):
+    """Residue/atom-name based requirements on coordinating neighbors."""
+
+    # Backwards compatible single residue name
+    resname: Optional[str] = None
+    # Optional list of residue names accepted for this requirement
+    resnames: Optional[List[str]] = None
+    atom_names: Optional[List[str]] = None
+    min_count: int = 1
+
+    @field_validator("resname", mode="before")
+    @classmethod
+    def normalize_resname(cls, v: Any) -> str:
+        if v is None:
+            return None
+        return str(v).strip().upper()
+
+    @field_validator("resnames", mode="before")
+    @classmethod
+    def normalize_resnames(cls, v: Any) -> Optional[List[str]]:
+        if v is None:
+            return None
+        if isinstance(v, str):
+            v = [v]
+        try:
+            out = [str(s).strip().upper() for s in v if str(s).strip()]
+        except Exception:
+            return None
+        return out or None
+
+    @field_validator("atom_names", mode="before")
+    @classmethod
+    def normalize_atom_names(cls, v: Any) -> Optional[List[str]]:
+        if v is None:
+            return None
+        if isinstance(v, str):
+            v = [v]
+        try:
+            out = [str(s).strip().upper() for s in v if str(s).strip()]
+        except Exception:
+            return None
+        return out or None
+
+    @field_validator("min_count", mode="before")
+    @classmethod
+    def normalize_min_count(cls, v: Any) -> int:
+        try:
+            n = int(v)
+        except Exception:
+            n = 1
+        return max(0, n)
+
+    @model_validator(mode="after")
+    def fill_resnames(self):
+        # If only resname is provided, populate resnames.
+        if not self.resnames:
+            if self.resname:
+                self.resnames = [self.resname]
+        else:
+            # Ensure resname is set consistently for older code/printing.
+            if not self.resname and self.resnames:
+                self.resname = self.resnames[0]
+        return self
+
+
 class ValidationConfig(BaseModel):
     coordination_distance_max: float = 2.8
     coordination_distance_min: float = 2.0
+    # Exact coord-string filter (legacy): e.g. {"1N3S"}
     coord: Optional[Set[str]] = None
+    # Residue-aware filter on coordinating neighbors: list of requirements that must all be met.
+    ligand_requirements: Optional[List[LigandRequirement]] = None
 
     @field_validator("coord", mode="before")
     @classmethod
@@ -82,6 +151,23 @@ class ValidationConfig(BaseModel):
         except Exception:
             return None
         return set(vals) if vals else None
+
+    @field_validator("ligand_requirements", mode="before")
+    @classmethod
+    def to_ligand_requirements(cls, v: Any) -> Optional[List[LigandRequirement]]:
+        if v is None:
+            return None
+        if isinstance(v, dict):
+            v = [v]
+        if not isinstance(v, list):
+            return None
+        out: List[LigandRequirement] = []
+        for item in v:
+            try:
+                out.append(LigandRequirement(**item) if isinstance(item, dict) else LigandRequirement(resname=str(item)))
+            except Exception:
+                continue
+        return out or None
 
 class PipelineConfig(BaseModel):
     search_parameters: SearchParameters

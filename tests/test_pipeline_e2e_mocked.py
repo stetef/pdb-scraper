@@ -125,7 +125,8 @@ def test_pipeline_search_parameters_cause_rejection(monkeypatch, tmp_path):
     cfg_path.write_text(yaml.safe_dump(cfg_dict))
 
     # Prepare fake IDs that search will return
-    fake_ids = [f"X{i:02d}" for i in range(5)]
+    # Use valid 4-character PDB-like IDs so fetch_pdb doesn't reject them.
+    fake_ids = [f"X{i:03d}" for i in range(5)]
 
     captured = {}
 
@@ -134,8 +135,8 @@ def test_pipeline_search_parameters_cause_rejection(monkeypatch, tmp_path):
         captured['params'] = cfg.search_parameters
         return fake_ids
 
-    # downloader.resolve_input_sources imports search_pdb from scrape_pdb.search
-    monkeypatch.setattr('scrape_pdb.downloader.search_pdb', fake_search)
+    # run_pipeline (search mode) calls the symbol imported into scrape_pdb.main
+    monkeypatch.setattr('scrape_pdb.main.search_pdb', fake_search)
 
     # Monkeypatch fetch_pdb to write simple PDB files and return paths
     dl_dir = Path(cfg_dict['processing']['temp_directory'])
@@ -146,7 +147,9 @@ def test_pipeline_search_parameters_cause_rejection(monkeypatch, tmp_path):
         p.write_text("REMARK   2 RESOLUTION.    3.00 ANGSTROM.\nATOM\n")
         return str(p)
 
+    # run_pipeline (search mode) calls the symbol imported into scrape_pdb.main
     monkeypatch.setattr('scrape_pdb.downloader.fetch_pdb', fake_fetch)
+    monkeypatch.setattr('scrape_pdb.main.fetch_pdb', fake_fetch)
 
     # Force process_pdb to always return [] so pipeline marks them rejected
     def fake_process(pdb_path, config):

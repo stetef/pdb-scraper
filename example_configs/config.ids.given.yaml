@@ -30,7 +30,10 @@ output:
 validation:
   coordination_distance_max: 2.8
   coordination_distance_min: 2.0
-  coord: "4S"
+  ligand_requirements:
+    - resname: CYS
+      atom_names: [SG]
+      min_count: 4
 
 # Legacy/Manual input support
 input_mode: "list_file"
