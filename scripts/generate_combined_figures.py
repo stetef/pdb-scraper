@@ -27,6 +27,39 @@ def format_caption(filename: str) -> str:
     return caption
 
 
+def _detect_grid_columns(png_files: list[Path]) -> int:
+    names = [p.name.lower() for p in png_files]
+    has_cys = any("cys" in n for n in names)
+    has_his = any("his" in n for n in names)
+    if has_cys and has_his:
+        return 5
+    if has_his and not has_cys:
+        return 2
+    return 3
+
+
+def _detect_system_label(figures_dir: Path, png_files: list[Path]) -> str:
+    name_hint = figures_dir.as_posix().lower()
+    for key, label in (
+        ("4cys", "Zn-4Cys"),
+        ("4his", "Zn-4His"),
+        ("3cys1his", "Zn-3Cys-1His"),
+        ("2cys2his", "Zn-2Cys-2His"),
+        ("1cys3his", "Zn-1Cys-3His"),
+    ):
+        if key in name_hint:
+            return label
+
+    names = [p.name.lower() for p in png_files]
+    has_cys = any("cys" in n for n in names)
+    has_his = any("his" in n for n in names)
+    if has_cys and has_his:
+        return "Zn-2Cys-2His"
+    if has_his and not has_cys:
+        return "Zn-4His"
+    return "Zn-4Cys"
+
+
 def generate_html(figures_dir: Path, output_path: Path):
     """Generate self-contained HTML with embedded images."""
     
@@ -41,13 +74,16 @@ def generate_html(figures_dir: Path, output_path: Path):
     for png in png_files:
         print(f"  - {png.name}")
     
+    grid_columns = _detect_grid_columns(png_files)
+    system_label = _detect_system_label(figures_dir, png_files)
+
     # Generate HTML header
     html_parts = ['''<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PDB Analysis Figures - 3x3 Grid</title>
+    <title>PDB Analysis Figures - ''' + system_label + '''</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -61,7 +97,7 @@ def generate_html(figures_dir: Path, output_path: Path):
         }
         .grid-container {
             display: grid;
-            grid-template-columns: repeat(3, 1fr);
+            grid-template-columns: repeat(''' + str(grid_columns) + ''', 1fr);
             gap: 20px;
             max-width: 1800px;
             margin: 0 auto;
@@ -124,7 +160,7 @@ def generate_html(figures_dir: Path, output_path: Path):
     </style>
 </head>
 <body>
-    <h1>Validation of Zn-4Cys Systems on PDB</h1>
+    <h1>Validation of ''' + system_label + ''' Systems on PDB</h1>
     
     <div class="grid-container">
 ''']

@@ -181,6 +181,130 @@ def sg_bond_lengths_to_center(atoms: List[XyzAtom], *, max_sgs: int = 4) -> List
     return dists_sorted[:max_sgs].astype(float).tolist()
 
 
+def his_coord_bond_lengths_to_center(atoms: List[XyzAtom], *, max_residues: int = 4) -> List[float]:
+    """Return distances from origin to coordinating HIS atom (ND1/NE2), up to `max_residues`.
+
+    For each HIS residue (CHAIN+RESSEQ), choose the nearest coordinating atom
+    (ND1 or NE2). Then keep the `max_residues` residues with smallest coordinating
+    atom distance-to-origin.
+    """
+    by_residue: Dict[Tuple[str, str], Dict[str, XyzAtom]] = {}
+    for a in atoms:
+        if a.meta.get("RES") != "HIS":
+            continue
+        atom_name = a.meta.get("ATOM")
+        if atom_name not in {"ND1", "NE2"}:
+            continue
+        chain = a.meta.get("CHAIN", "")
+        resseq = a.meta.get("RESSEQ")
+        if not resseq:
+            continue
+        by_residue.setdefault((chain, resseq), {})[atom_name] = a
+
+    candidates: List[Tuple[float, float]] = []
+    for atom_map in by_residue.values():
+        best = None
+        best_d2 = None
+        for name in ("ND1", "NE2"):
+            a = atom_map.get(name)
+            if a is None:
+                continue
+            d2 = float(a.x * a.x + a.y * a.y + a.z * a.z)
+            if best_d2 is None or d2 < best_d2:
+                best_d2 = d2
+                best = a
+        if best is None or best_d2 is None:
+            continue
+        candidates.append((best_d2, float(np.sqrt(best_d2))))
+
+    candidates.sort(key=lambda t: t[0])
+    return [d for _, d in candidates[:max_residues]]
+
+
+def his_atom_distances_selected_by_coord(
+    atoms: List[XyzAtom],
+    atom_name: str,
+    *,
+    max_residues: int = 4,
+) -> List[float]:
+    """Return distances from origin to a HIS atom for residues selected by nearest ND1/NE2.
+
+    For each HIS residue (CHAIN+RESSEQ), select the coordinating atom (nearest ND1/NE2).
+    Keep the `max_residues` residues with smallest coordinating-atom distance-to-origin,
+    then return distances from origin to `atom_name` for those residues (if present).
+    """
+    by_residue: Dict[Tuple[str, str], Dict[str, XyzAtom]] = {}
+    for a in atoms:
+        if a.meta.get("RES") != "HIS":
+            continue
+        an = a.meta.get("ATOM")
+        if an not in {"ND1", "NE2", atom_name}:
+            continue
+        chain = a.meta.get("CHAIN", "")
+        resseq = a.meta.get("RESSEQ")
+        if not resseq:
+            continue
+        by_residue.setdefault((chain, resseq), {})[an] = a
+
+    candidates: List[Tuple[float, float]] = []
+    for atom_map in by_residue.values():
+        best = None
+        best_d2 = None
+        for name in ("ND1", "NE2"):
+            a = atom_map.get(name)
+            if a is None:
+                continue
+            d2 = float(a.x * a.x + a.y * a.y + a.z * a.z)
+            if best_d2 is None or d2 < best_d2:
+                best_d2 = d2
+                best = a
+        if best is None or best_d2 is None:
+            continue
+
+        target = atom_map.get(atom_name)
+        if target is None:
+            continue
+        dist = float(np.sqrt(target.x * target.x + target.y * target.y + target.z * target.z))
+        candidates.append((best_d2, dist))
+
+    candidates.sort(key=lambda t: t[0])
+    return [d for _, d in candidates[:max_residues]]
+
+
+def count_cys_sg_residues(atoms: List[XyzAtom]) -> int:
+    """Count coordinating CYS residues by SG presence (CHAIN+RESSEQ)."""
+    by_residue: Dict[Tuple[str, str], set[str]] = {}
+    for a in atoms:
+        if a.meta.get("RES") != "CYS":
+            continue
+        atom_name = a.meta.get("ATOM")
+        if atom_name != "SG":
+            continue
+        chain = a.meta.get("CHAIN", "")
+        resseq = a.meta.get("RESSEQ")
+        if not resseq:
+            continue
+        by_residue.setdefault((chain, resseq), set()).add(atom_name)
+    return len(by_residue)
+
+
+def count_his_coord_residues(atoms: List[XyzAtom]) -> int:
+    """Count coordinating HIS residues with ND1/NE2 (CHAIN+RESSEQ)."""
+    by_residue: Dict[Tuple[str, str], set[str]] = {}
+    for a in atoms:
+        if a.meta.get("RES") != "HIS":
+            continue
+        atom_name = a.meta.get("ATOM")
+        if atom_name not in {"ND1", "NE2"}:
+            continue
+        chain = a.meta.get("CHAIN", "")
+        resseq = a.meta.get("RESSEQ")
+        if not resseq:
+            continue
+        by_residue.setdefault((chain, resseq), set()).add(atom_name)
+    return len(by_residue)
+
+
 def _cys_atoms_by_residue(
     atoms: List[XyzAtom],
     *,
@@ -786,9 +910,17 @@ def plot_resseq_paths(
     @dataclass(frozen=True)
     class _Residue:
         key: Tuple[str, str, str]
-        sg: np.ndarray
-        cb: np.ndarray
-        ca: np.ndarray
+        kind: str
+        coord_name: str
+        atoms: Dict[str, np.ndarray]
+
+        @property
+        def coord(self) -> np.ndarray:
+            return self.atoms[self.coord_name]
+
+    his_ring_order = ["CG", "CD2", "NE2", "CE1", "ND1", "CG"]
+    his_prefer_coord = ["ND1", "NE2"]
+    his_secondary_atoms = ["CB", "CG", "CD2", "NE2", "CE1", "ND1", "CA"]
 
     # Group atom coordinates by residue per source.
     residues_by_source: Dict[str, Dict[Tuple[str, str], Dict[str, Tuple[float, float, float]]]] = {}
@@ -804,16 +936,59 @@ def plot_resseq_paths(
             if k not in src_map:
                 src_map[k] = {}
             src_map[k][atom_name] = (a.x, a.y, a.z)
+            res_name = a.meta.get("RES")
+            if res_name and "RES" not in src_map[k]:
+                src_map[k]["RES"] = res_name
 
-    # Build per-source residue lists (SG/CB/CA only), selecting the 4 coordinating residues
-    # by choosing the smallest SG distance-to-origin per file.
+    def _choose_his_coord_atom(atom_map: Dict[str, Tuple[float, float, float]]) -> str | None:
+        candidates = [name for name in his_prefer_coord if name in atom_map]
+        if not candidates:
+            return None
+        best = None
+        best_d2 = None
+        for name in candidates:
+            v = _v(atom_map[name])
+            d2 = float(np.dot(v, v))
+            if best_d2 is None or d2 < best_d2:
+                best = name
+                best_d2 = d2
+        return best
+
+    def _basis_from_residue(res: _Residue) -> np.ndarray | None:
+        seed = res.coord
+        for name in his_secondary_atoms:
+            if name in res.atoms and name != res.coord_name:
+                basis = _basis_from_two_vectors(seed, res.atoms[name])
+                if basis is not None:
+                    return basis
+        return None
+
+    def _score_residue_pair(
+        ref: _Residue, cur_atoms_rot: Dict[str, np.ndarray]
+    ) -> float:
+        score = 0.0
+        shared = set(ref.atoms.keys()) & set(cur_atoms_rot.keys())
+        for name in shared:
+            d = ref.atoms[name] - cur_atoms_rot[name]
+            score += float(np.dot(d, d))
+        return score
+
+    # Build per-source residue lists (CYS/HIS), selecting the 4 coordinating residues
+    # by choosing the smallest distance-to-origin of the coordinating atom per file.
     reslist_by_source: Dict[str, List[_Residue]] = {}
     for source, src_map in residues_by_source.items():
         candidates: List[Tuple[float, str, str, _Residue]] = []
         for (chain, resseq), atom_map in src_map.items():
-            if "SG" in atom_map and "CB" in atom_map and "CA" in atom_map:
-                sg = _v(atom_map["SG"])
-                sg_d2 = float(np.dot(sg, sg))  # origin is (0,0,0) in these XYZ files
+            res_name = atom_map.get("RES")
+
+            # CYS residues: require SG, keep CB/CA if present.
+            if "SG" in atom_map and res_name == "CYS":
+                atoms: Dict[str, np.ndarray] = {"SG": _v(atom_map["SG"])}
+                if "CB" in atom_map:
+                    atoms["CB"] = _v(atom_map["CB"])
+                if "CA" in atom_map:
+                    atoms["CA"] = _v(atom_map["CA"])
+                sg_d2 = float(np.dot(atoms["SG"], atoms["SG"]))
                 candidates.append(
                     (
                         sg_d2,
@@ -821,9 +996,33 @@ def plot_resseq_paths(
                         resseq,
                         _Residue(
                             key=(source, chain, resseq),
-                            sg=sg,
-                            cb=_v(atom_map["CB"]),
-                            ca=_v(atom_map["CA"]),
+                            kind="CYS",
+                            coord_name="SG",
+                            atoms=atoms,
+                        ),
+                    )
+                )
+
+            # HIS residues: require a coordinating N (ND1/NE2), keep ring/stem atoms if present.
+            if res_name == "HIS":
+                coord_name = _choose_his_coord_atom(atom_map)
+                if coord_name is None:
+                    continue
+                atoms: Dict[str, np.ndarray] = {coord_name: _v(atom_map[coord_name])}
+                for name in ["CA", "CB", "CG", "CD2", "NE2", "CE1", "ND1"]:
+                    if name in atom_map and name not in atoms:
+                        atoms[name] = _v(atom_map[name])
+                coord_d2 = float(np.dot(atoms[coord_name], atoms[coord_name]))
+                candidates.append(
+                    (
+                        coord_d2,
+                        chain,
+                        resseq,
+                        _Residue(
+                            key=(source, chain, resseq),
+                            kind="HIS",
+                            coord_name=coord_name,
+                            atoms=atoms,
                         ),
                     )
                 )
@@ -834,24 +1033,64 @@ def plot_resseq_paths(
     first_source = sources_in_order[0] if sources_in_order else ""
     ref_residues = reslist_by_source.get(first_source, [])
     if not ref_residues:
-        raise SystemExit("No residues found with SG, CB, and CA atoms in the first file.")
+        raise SystemExit("No coordinating residues found in the first file.")
 
-    # Assign each residue to one of 4 colors based on SG proximity.
+    # Choose reference seed based on residue composition:
+    # - If exactly one CYS or one HIS, use that "odd one out" as the seed.
+    # - Otherwise prefer CYS if present; else use the nearest HIS.
+    cys_ref = [r for r in ref_residues if r.kind == "CYS"]
+    his_ref = [r for r in ref_residues if r.kind == "HIS"]
+    if len(cys_ref) == 1:
+        ref_seed = cys_ref[0]
+    elif len(his_ref) == 1:
+        ref_seed = his_ref[0]
+    else:
+        ref_seed = cys_ref[0] if cys_ref else ref_residues[0]
+    ref_residues = [ref_seed] + [r for r in ref_residues if r is not ref_seed]
+
+    def _tint(hex_color: str, factor: float) -> str:
+        h = hex_color.lstrip("#")
+        if len(h) != 6:
+            return hex_color
+        r = int(h[0:2], 16)
+        g = int(h[2:4], 16)
+        b = int(h[4:6], 16)
+        r = max(0, min(255, int(r * factor)))
+        g = max(0, min(255, int(g * factor)))
+        b = max(0, min(255, int(b * factor)))
+        return f"#{r:02X}{g:02X}{b:02X}"
+
+    def _blend_white(hex_color: str, amount: int) -> str:
+        h = hex_color.lstrip("#")
+        if len(h) != 6:
+            return hex_color
+        r = int(h[0:2], 16)
+        g = int(h[2:4], 16)
+        b = int(h[4:6], 16)
+        r = max(0, min(255, r + amount))
+        g = max(0, min(255, g + amount))
+        b = max(0, min(255, b + amount))
+        return f"#{r:02X}{g:02X}{b:02X}"
+
+    # Assign each residue to one of 4 colors based on coordinating-atom proximity.
     # Seed the 4 color groups from the first file, then for residues in later files
-    # inherit the color of the nearest previously-seen SG.
+    # inherit the color of the nearest previously-seen coordinating atom.
     palette = PALETTE
+    mixed_2cys_2his = len([r for r in ref_residues if r.kind == "CYS"]) == 2 and len(
+        [r for r in ref_residues if r.kind == "HIS"]
+    ) == 2
 
-    # Map residue key -> color index, plus an index of already-assigned SGs for nearest-neighbor lookup.
+    # Map residue key -> color index, plus an index of already-assigned coords for nearest-neighbor lookup.
     color_by_residue: Dict[Tuple[str, str, str], int] = {}
-    assigned_sg: List[Tuple[np.ndarray, int]] = []
+    assigned_coord: List[Tuple[np.ndarray, int]] = []
 
-    def _assign_color_from_assigned(sg: np.ndarray) -> int:
-        if not assigned_sg:
+    def _assign_color_from_assigned(coord: np.ndarray) -> int:
+        if not assigned_coord:
             return 0
-        best_color = assigned_sg[0][1]
-        best_d2 = _dist2(sg, assigned_sg[0][0])
-        for prev_sg, prev_color in assigned_sg[1:]:
-            d2 = _dist2(sg, prev_sg)
+        best_color = assigned_coord[0][1]
+        best_d2 = _dist2(coord, assigned_coord[0][0])
+        for prev_coord, prev_color in assigned_coord[1:]:
+            d2 = _dist2(coord, prev_coord)
             if d2 < best_d2:
                 best_d2 = d2
                 best_color = prev_color
@@ -862,22 +1101,20 @@ def plot_resseq_paths(
     for i, r in enumerate(ref_residues[:4]):
         ci = i
         color_by_residue[r.key] = ci
-        assigned_sg.append((r.sg, ci))
+        assigned_coord.append((r.coord, ci))
 
     # For each subsequent file, apply a global rotation that best aligns to the reference.
-    # We try 4 candidate rotations by choosing which of the 4 residues maps to the reference seed residue.
+    # Number of rotation candidates is equal to the number of coordinating CYS residues;
+    # if no CYS residues, fall back to coordinating HIS residues.
     ref_seed = ref_residues[0]
-    ref_basis = _basis_from_two_vectors(ref_seed.sg, ref_seed.cb)
-    if ref_basis is None:
-        # Fallback: try CA if CB is collinear.
-        ref_basis = _basis_from_two_vectors(ref_seed.sg, ref_seed.ca)
+    ref_basis = _basis_from_residue(ref_seed)
     if ref_basis is None:
         raise SystemExit("Unable to build a stable reference basis from the first residue (seed).")
 
-    ordered_paths: List[Tuple[Tuple[str, str, str], np.ndarray, np.ndarray, np.ndarray]] = []
+    ordered_paths: List[Tuple[_Residue, Dict[str, np.ndarray]]] = []
     # Add reference paths first.
     for r in ref_residues[:4]:
-        ordered_paths.append((r.key, r.sg, r.cb, r.ca))
+        ordered_paths.append((r, r.atoms))
 
     for src in sources_in_order[1:]:
         cur_residues = reslist_by_source.get(src, [])[:4]
@@ -893,11 +1130,22 @@ def plot_resseq_paths(
         best_rot = None
         best_perm = None
 
-        for seed_idx in range(n):
+        cys_indices = [i for i, r in enumerate(curN) if r.kind == "CYS"]
+        his_indices = [i for i, r in enumerate(curN) if r.kind == "HIS"]
+        if len(cys_indices) == 1:
+            seed_indices = cys_indices
+        elif len(his_indices) == 1:
+            seed_indices = his_indices
+        elif len(cys_indices) == 2 and len(his_indices) == 2:
+            seed_indices = cys_indices
+        elif len(cys_indices) == 4 or len(his_indices) == 4:
+            seed_indices = list(range(n))
+        else:
+            seed_indices = cys_indices if cys_indices else his_indices
+
+        for seed_idx in seed_indices:
             seed_cur = curN[seed_idx]
-            cur_basis = _basis_from_two_vectors(seed_cur.sg, seed_cur.cb)
-            if cur_basis is None:
-                cur_basis = _basis_from_two_vectors(seed_cur.sg, seed_cur.ca)
+            cur_basis = _basis_from_residue(seed_cur)
             if cur_basis is None:
                 continue
 
@@ -914,12 +1162,8 @@ def plot_resseq_paths(
                 for ref_i, cur_i in enumerate(perm):
                     rr = refN[ref_i]
                     cr = curN[cur_i]
-                    sg_r = rot @ cr.sg
-                    cb_r = rot @ cr.cb
-                    ca_r = rot @ cr.ca
-                    score += _dist2(sg_r, rr.sg)
-                    score += _dist2(cb_r, rr.cb)
-                    score += _dist2(ca_r, rr.ca)
+                    cur_atoms_rot = {name: rot @ pos for name, pos in cr.atoms.items()}
+                    score += _score_residue_pair(rr, cur_atoms_rot)
                 if best_score is None or score < best_score:
                     best_score = score
                     best_rot = rot
@@ -933,13 +1177,12 @@ def plot_resseq_paths(
         # Apply the chosen rotation and assign colors based on nearest previously-seen SG.
         for cur_i in best_perm:
             cr = curN[cur_i]
-            sg_r = best_rot @ cr.sg
-            cb_r = best_rot @ cr.cb
-            ca_r = best_rot @ cr.ca
-            ci = _assign_color_from_assigned(sg_r)
+            cur_atoms_rot = {name: best_rot @ pos for name, pos in cr.atoms.items()}
+            coord_r = cur_atoms_rot[cr.coord_name]
+            ci = _assign_color_from_assigned(coord_r)
             color_by_residue[cr.key] = ci
-            assigned_sg.append((sg_r, ci))
-            ordered_paths.append((cr.key, sg_r, cb_r, ca_r))
+            assigned_coord.append((coord_r, ci))
+            ordered_paths.append((cr, cur_atoms_rot))
 
     def _pt(v: np.ndarray) -> Dict[str, float]:
         vv = _v(v)
@@ -951,19 +1194,94 @@ def plot_resseq_paths(
     # Draw origin.
     view.addSphere({"center": {"x": 0.0, "y": 0.0, "z": 0.0}, "radius": 0.16, "color": "black"})
 
-    for key, sg, cb, ca in ordered_paths:
-        ci = color_by_residue.get(key, 0)
+    for res, atoms_rot in ordered_paths:
+        ci = color_by_residue.get(res.key, 0)
         color = palette[ci % 4]
+        line_opacity = None
+        sphere_opacity = None
+        if mixed_2cys_2his:
+            if res.kind == "CYS":
+                color = _tint(color, 0.8)
+            else:
+                color = _blend_white(color, 70)
+                line_opacity = 0.95
+                sphere_opacity = 0.95
 
-        # Lines: origin->SG, SG->CB, CB->CA.
-        view.addLine({"start": {"x": 0.0, "y": 0.0, "z": 0.0}, "end": _pt(sg), "color": color, "linewidth": 10})
-        view.addLine({"start": _pt(sg), "end": _pt(cb), "color": color, "linewidth": 10})
-        view.addLine({"start": _pt(cb), "end": _pt(ca), "color": color, "linewidth": 10})
+        coord = atoms_rot.get(res.coord_name)
+        if coord is not None:
+            line_spec = {"start": {"x": 0.0, "y": 0.0, "z": 0.0}, "end": _pt(coord), "color": color, "linewidth": 10}
+            if line_opacity is not None:
+                line_spec["opacity"] = line_opacity
+            view.addLine(line_spec)
+            sphere_spec = {"center": _pt(coord), "radius": 0.14, "color": color}
+            if sphere_opacity is not None:
+                sphere_spec["opacity"] = sphere_opacity
+            view.addSphere(sphere_spec)
 
-        # Points at SG/CB/CA.
-        view.addSphere({"center": _pt(sg), "radius": 0.14, "color": color})
-        view.addSphere({"center": _pt(cb), "radius": 0.1, "color": color})
-        view.addSphere({"center": _pt(ca), "radius": 0.1, "color": color})
+        if res.kind == "CYS":
+            sg = atoms_rot.get("SG")
+            cb = atoms_rot.get("CB")
+            ca = atoms_rot.get("CA")
+            if sg is not None and cb is not None:
+                line_spec = {"start": _pt(sg), "end": _pt(cb), "color": color, "linewidth": 10}
+                if line_opacity is not None:
+                    line_spec["opacity"] = line_opacity
+                view.addLine(line_spec)
+                sphere_spec = {"center": _pt(cb), "radius": 0.1, "color": color}
+                if sphere_opacity is not None:
+                    sphere_spec["opacity"] = sphere_opacity
+                view.addSphere(sphere_spec)
+            if cb is not None and ca is not None:
+                line_spec = {"start": _pt(cb), "end": _pt(ca), "color": color, "linewidth": 10}
+                if line_opacity is not None:
+                    line_spec["opacity"] = line_opacity
+                view.addLine(line_spec)
+                sphere_spec = {"center": _pt(ca), "radius": 0.1, "color": color}
+                if sphere_opacity is not None:
+                    sphere_spec["opacity"] = sphere_opacity
+                view.addSphere(sphere_spec)
+
+        if res.kind == "HIS":
+            # Stem: CA->CB->CG if present.
+            ca = atoms_rot.get("CA")
+            cb = atoms_rot.get("CB")
+            cg = atoms_rot.get("CG")
+            if ca is not None and cb is not None:
+                line_spec = {"start": _pt(ca), "end": _pt(cb), "color": color, "linewidth": 10}
+                if line_opacity is not None:
+                    line_spec["opacity"] = line_opacity
+                view.addLine(line_spec)
+                sphere_spec = {"center": _pt(ca), "radius": 0.1, "color": color}
+                if sphere_opacity is not None:
+                    sphere_spec["opacity"] = sphere_opacity
+                view.addSphere(sphere_spec)
+                sphere_spec = {"center": _pt(cb), "radius": 0.1, "color": color}
+                if sphere_opacity is not None:
+                    sphere_spec["opacity"] = sphere_opacity
+                view.addSphere(sphere_spec)
+            if cb is not None and cg is not None:
+                line_spec = {"start": _pt(cb), "end": _pt(cg), "color": color, "linewidth": 10}
+                if line_opacity is not None:
+                    line_spec["opacity"] = line_opacity
+                view.addLine(line_spec)
+                sphere_spec = {"center": _pt(cg), "radius": 0.1, "color": color}
+                if sphere_opacity is not None:
+                    sphere_spec["opacity"] = sphere_opacity
+                view.addSphere(sphere_spec)
+
+            # Ring: CG-CD2-NE2-CE1-ND1-CG (draw segments when atoms exist).
+            ring_points = [atoms_rot.get(name) for name in his_ring_order]
+            for p1, p2 in zip(ring_points, ring_points[1:]):
+                if p1 is None or p2 is None:
+                    continue
+                line_spec = {"start": _pt(p1), "end": _pt(p2), "color": color, "linewidth": 10}
+                if line_opacity is not None:
+                    line_spec["opacity"] = line_opacity
+                view.addLine(line_spec)
+                sphere_spec = {"center": _pt(p2), "radius": 0.1, "color": color}
+                if sphere_opacity is not None:
+                    sphere_spec["opacity"] = sphere_opacity
+                view.addSphere(sphere_spec)
 
     view.zoomTo()
 
@@ -1073,9 +1391,9 @@ def _build_metric_specs() -> List[MetricSpec]:
             compute=lambda atoms: sg_bond_lengths_to_center(atoms, max_sgs=4),
             expected_per_file=4,
             summary_label="SG-to-center distances collected for histogram",
-            title="Histogram: Zn → S bond lengths",
+            title="CYS Histogram: Zn → S bond lengths",
             xlabel="Distance from Zn to CYS SG (Å)",
-            out_png_name="Figures/zn_sg_distances_histogram.png",
+            out_png_name="Figures/cys_zn_sg_distances_histogram.png",
             color=PALETTE[5],
             bins=20,
             unit="Å",
@@ -1085,9 +1403,9 @@ def _build_metric_specs() -> List[MetricSpec]:
             compute=lambda atoms: cb_bond_lengths_to_center_selected_by_sg(atoms, max_residues=4),
             expected_per_file=4,
             summary_label="CB-to-center distances collected for histogram",
-            title="Histogram: Zn → Cβ distances",
+            title="CYS Histogram: Zn → Cβ distances",
             xlabel="Distance from Zn to CYS CB (Å)",
-            out_png_name="Figures/zn_cb_distances_histogram.png",
+            out_png_name="Figures/cys_zn_cb_distances_histogram.png",
             color=PALETTE[1],
             bins=15,
             unit="Å",
@@ -1097,9 +1415,9 @@ def _build_metric_specs() -> List[MetricSpec]:
             compute=lambda atoms: ca_bond_lengths_to_center_selected_by_sg(atoms, max_residues=4),
             expected_per_file=4,
             summary_label="CA-to-center distances collected for histogram",
-            title="Histogram: Zn → Cα distances",
+            title="CYS Histogram: Zn → Cα distances",
             xlabel="Distance from Zn to CYS CA (Å)",
-            out_png_name="Figures/zn_ca_distances_histogram.png",
+            out_png_name="Figures/cys_zn_ca_distances_histogram.png",
             color=PALETTE[2],
             bins=15,
             unit="Å",
@@ -1109,9 +1427,9 @@ def _build_metric_specs() -> List[MetricSpec]:
             compute=lambda atoms: sg_ca_distances_selected_by_sg(atoms, max_residues=4),
             expected_per_file=4,
             summary_label="SG–CA distances collected for histogram",
-            title="Histogram: S → Cα distances",
+            title="CYS Histogram: S → Cα distances",
             xlabel="Distance from CYS SG to CYS CA (Å)",
-            out_png_name="Figures/sg_ca_distances_histogram.png",
+            out_png_name="Figures/cys_sg_ca_distances_histogram.png",
             color=PALETTE[3],
             bins=15,
             unit="Å",
@@ -1121,9 +1439,9 @@ def _build_metric_specs() -> List[MetricSpec]:
             compute=lambda atoms: cb_ca_distances_selected_by_sg(atoms, max_residues=4),
             expected_per_file=4,
             summary_label="CB–CA distances collected for histogram",
-            title="Histogram: Cβ → Cα distances",
+            title="CYS Histogram: Cβ → Cα distances",
             xlabel="Distance from CYS CB to CYS CA (Å)",
-            out_png_name="Figures/cb_ca_distances_histogram.png",
+            out_png_name="Figures/cys_cb_ca_distances_histogram.png",
             color=PALETTE[0],
             bins=15,
             unit="Å",
@@ -1133,9 +1451,9 @@ def _build_metric_specs() -> List[MetricSpec]:
             compute=lambda atoms: sg_cb_distances_selected_by_sg(atoms, max_residues=4),
             expected_per_file=4,
             summary_label="SG–CB distances collected for histogram",
-            title="Histogram: S → Cβ distances",
+            title="CYS Histogram: S → Cβ distances",
             xlabel="Distance from CYS SG to CYS CB (Å)",
-            out_png_name="Figures/sg_cb_distances_histogram.png",
+            out_png_name="Figures/cys_sg_cb_distances_histogram.png",
             color=PALETTE[7],
             bins=15,
             unit="Å",
@@ -1145,9 +1463,9 @@ def _build_metric_specs() -> List[MetricSpec]:
             compute=lambda atoms: sg_cb_angle_vs_radial_selected_by_sg(atoms, max_residues=4),
             expected_per_file=4,
             summary_label="Angles collected for histogram (angle between origin→SG and SG→CB)",
-            title="Histogram: Zn→S→Cβ angle",
+            title="CYS Histogram: Zn→S→Cβ angle",
             xlabel="Angle between (Zn→SG) and (SG→CB) (°)",
-            out_png_name="Figures/zn_sg_cb_angle_histogram.png",
+            out_png_name="Figures/cys_zn_sg_cb_angle_histogram.png",
             color=PALETTE[4],
             bins=18,
             unit="°",
@@ -1157,9 +1475,9 @@ def _build_metric_specs() -> List[MetricSpec]:
             compute=lambda atoms: sg_cb_ca_angle_selected_by_sg(atoms, max_residues=4),
             expected_per_file=4,
             summary_label="Angles collected for histogram (angle between SG→CB and CB→CA)",
-            title="Histogram: S→Cβ→Cα angle",
+            title="CYS Histogram: S→Cβ→Cα angle",
             xlabel="Angle between (SG→CB) and (CB→CA) (°)",
-            out_png_name="Figures/sg_cb_ca_angle_histogram.png",
+            out_png_name="Figures/cys_sg_cb_ca_angle_histogram.png",
             color=PALETTE[8],
             bins=18,
             unit="°",
@@ -1169,12 +1487,60 @@ def _build_metric_specs() -> List[MetricSpec]:
             compute=lambda atoms: dihedral_origin_sg_cb_ca_selected_by_sg(atoms, max_residues=4),
             expected_per_file=4,
             summary_label="Dihedral angles collected for histogram (origin→SG→CB→CA)",
-            title="Histogram: Zn→S→Cβ→Cα dihedral",
+            title="CYS Histogram: Zn→S→Cβ→Cα dihedral",
             xlabel="Dihedral angle (Zn→SG→CB→CA) (°)",
-            out_png_name="Figures/zn_sg_cb_ca_dihedral_histogram.png",
+            out_png_name="Figures/cys_zn_sg_cb_ca_dihedral_histogram.png",
             color=PALETTE[6],
             bins=25,
             unit="°",
+        ),
+        MetricSpec(
+            key="his_coord_center",
+            compute=lambda atoms: his_coord_bond_lengths_to_center(atoms, max_residues=4),
+            expected_per_file=4,
+            summary_label="HIS coordinating-atom distances collected for histogram",
+            title="HIS Histogram: Zn → coordinating atom distances",
+            xlabel="Distance from Zn to HIS ND1/NE2 (Å)",
+            out_png_name="Figures/his_zn_coord_distances_histogram.png",
+            color=PALETTE[8],
+            bins=18,
+            unit="Å",
+        ),
+        MetricSpec(
+            key="his_ca_center",
+            compute=lambda atoms: his_atom_distances_selected_by_coord(atoms, "CA", max_residues=4),
+            expected_per_file=4,
+            summary_label="HIS CA-to-center distances collected for histogram",
+            title="HIS Histogram: Zn → Cα distances",
+            xlabel="Distance from Zn to HIS CA (Å)",
+            out_png_name="Figures/his_zn_ca_distances_histogram.png",
+            color=PALETTE[2],
+            bins=15,
+            unit="Å",
+        ),
+        MetricSpec(
+            key="his_cb_center",
+            compute=lambda atoms: his_atom_distances_selected_by_coord(atoms, "CB", max_residues=4),
+            expected_per_file=4,
+            summary_label="HIS CB-to-center distances collected for histogram",
+            title="HIS Histogram: Zn → Cβ distances",
+            xlabel="Distance from Zn to HIS CB (Å)",
+            out_png_name="Figures/his_zn_cb_distances_histogram.png",
+            color=PALETTE[1],
+            bins=15,
+            unit="Å",
+        ),
+        MetricSpec(
+            key="his_cg_center",
+            compute=lambda atoms: his_atom_distances_selected_by_coord(atoms, "CG", max_residues=4),
+            expected_per_file=4,
+            summary_label="HIS CG-to-center distances collected for histogram",
+            title="HIS Histogram: Zn → Cγ distances",
+            xlabel="Distance from Zn to HIS CG (Å)",
+            out_png_name="Figures/his_zn_cg_distances_histogram.png",
+            color=PALETTE[5],
+            bins=15,
+            unit="Å",
         ),
     ]
 
@@ -1224,13 +1590,32 @@ def run_check_mode(xyz_dir: Path, *, open_html: bool) -> None:
     outliers: List[Path] = []
 
     metric_specs = _build_metric_specs()
+    cys_metric_keys = {
+        "sg_center",
+        "cb_center",
+        "ca_center",
+        "sg_ca",
+        "cb_ca",
+        "sg_cb",
+        "sgcb_angle",
+        "sg_cb_ca_angle",
+        "zn_sg_cb_ca_dihedral",
+    }
+    his_metric_keys = {"his_coord_center", "his_ca_center", "his_cb_center", "his_cg_center"}
     metrics: Dict[str, MetricAccum] = {spec.key: MetricAccum(values=[], sources=[]) for spec in metric_specs}
 
     for p in all_xyz:
         atoms = parse_xyz_atoms(p)
         atoms_by_path[p] = atoms
 
+        cys_count = count_cys_sg_residues(atoms)
+        his_count = count_his_coord_residues(atoms)
+
         for spec in metric_specs:
+            if spec.key in cys_metric_keys and cys_count == 0 and his_count >= 4:
+                continue
+            if spec.key in his_metric_keys and his_count == 0:
+                continue
             _accumulate_metric(metrics, spec, atoms, source_name=p.name)
 
         n = count_cys_residues_with_ca_cb_sg(atoms)
