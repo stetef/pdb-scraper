@@ -22,7 +22,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from xyz_plot_helpers import run_check_mode, run_plot_mode
+from xyz_plot_helpers import resolve_reference_xyz, run_check_mode, run_plot_mode
 
 
 def main() -> None:
@@ -48,6 +48,11 @@ def main() -> None:
         action="store_true",
         help="Open the generated py3Dmol HTML in your default browser",
     )
+    parser.add_argument(
+        "--reference",
+        action="store_true",
+        help="Overlay Reference_*.xyz metrics from ../../ relative to --dir as dashed lines in histograms",
+    )
     args = parser.parse_args()
 
     xyz_dir = Path(args.dir)
@@ -58,7 +63,8 @@ def main() -> None:
     if args.check:
         if args.file is not None:
             raise SystemExit("--check cannot be used with --file; it scans the entire --dir")
-        run_check_mode(xyz_dir, open_html=args.open)
+        reference_path = resolve_reference_xyz(xyz_dir) if args.reference else None
+        run_check_mode(xyz_dir, open_html=args.open, reference_path=reference_path)
         return
     run_plot_mode(xyz_dir, file_arg=args.file, open_html=args.open)
 

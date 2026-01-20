@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from bisect import bisect_right
+from collections import deque
 import json
 import numpy as np
 import subprocess
@@ -83,6 +84,31 @@ def _print_metric_summary(spec: MetricSpec, acc: MetricAccum, *, total_files: in
             f"Note: {acc.files_with_lt_expected} file(s) had <{spec.expected_per_file} contributing values; "
             "their histogram contribution is truncated."
         )
+
+
+def _print_values_summary(label: str, values: List[float], *, unit: str) -> None:
+    if not values:
+        print(f"{label}: 0 values")
+        return
+    arr = np.asarray(values, dtype=float)
+    mean = float(arr.mean())
+    unit_suffix = unit if unit in ("°", "%") else f" {unit}" if unit else ""
+    print(
+        f"{label}: {len(values)} values "
+        f"(min={float(arr.min()):.3f}{unit_suffix}, max={float(arr.max()):.3f}{unit_suffix}, mean={mean:.3f}{unit_suffix})"
+    )
+
+
+def _format_reference_label(values: List[float], *, unit: str) -> str:
+    if not values:
+        return "ORCA Reference\n0 values"
+    arr = np.asarray(values, dtype=float)
+    mean = float(arr.mean())
+    unit_suffix = unit if unit in ("°", "%") else f" {unit}" if unit else ""
+    return (
+        "ORCA Reference\n"
+        f"{len(values)} values (mean={mean:.3f}{unit_suffix})"
+    )
 
 
 def _parse_meta_comment(comment: str) -> Dict[str, str]:
@@ -655,6 +681,8 @@ def plot_bond_length_histogram(
     color: str = "blue",
     bins: int | str = "auto",
     unit: str = "Å",
+    reference_values: List[float] | None = None,
+    reference_label: str | None = None,
 ) -> None:
     """Plot a histogram of bond lengths with hover/click bin inspection.
 
@@ -699,6 +727,21 @@ def plot_bond_length_histogram(
     ax.set_axisbelow(True)
     ax.grid(axis="both", zorder=0, alpha=0.5)
     counts, edges, patches = ax.hist(distances, bins=bins, edgecolor="black", color=color, alpha=0.8, zorder=5)
+
+    if reference_values:
+        label = reference_label or "reference"
+        first = True
+        for val in reference_values:
+            ax.axvline(
+                val,
+                linestyle="--",
+                linewidth=1.4,
+                color="black",
+                alpha=0.9,
+                zorder=6,
+                label=label if first else None,
+            )
+            first = False
 
     # Build bin -> set(files) mapping.
     nbins = max(0, len(edges) - 1)
@@ -788,6 +831,9 @@ def plot_bond_length_histogram(
     plt.title(title)
     plt.xlabel(xlabel)
     plt.ylabel("Count")
+    if reference_values:
+        ax.legend(loc="best")
+
     plt.tight_layout()
 
     out_path = Path(out_png_name)
@@ -853,6 +899,359 @@ def resolve_xyz_files(file_arg: str | None, directory: Path) -> List[Path]:
         return matches
 
     raise SystemExit(f"File not found and no matches for '{raw}' in {search_dir}")
+
+
+def resolve_reference_xyz(directory: Path) -> Path:
+    """Resolve ../../Reference_*.xyz relative to the provided directory."""
+    search_dir = (directory / ".." / "..").resolve()
+    matches = sorted([p for p in search_dir.glob("Reference_*.xyz") if p.is_file()])
+    if not matches:
+        raise SystemExit(f"No Reference_*.xyz found in {search_dir}")
+    if len(matches) > 1:
+        print(f"Multiple Reference_*.xyz files found in {search_dir}; using {matches[0].name}")
+    return matches[0]
+
+
+def _infer_reference_atoms_and_labels(
+    atoms: List[XyzAtom],
+) -> Tuple[List[XyzAtom], Dict[int, str]]:
+    """Infer coordinating CYS/HIS atoms and labels from element-only XYZ.
+
+    Returns inferred atoms (with metadata, Zn-centered) and a mapping of
+    original atom indices -> label strings for hover display.
+    """
+    labels_by_idx: Dict[int, str] = {}
+    inferred_atoms: List[XyzAtom] = []
+
+    zn = next((a for a in atoms if a.element.strip().upper() == "ZN"), None)
+    if zn is None:
+        print("Warning: no Zn atom found in reference XYZ; reference overlays disabled.")
+        return inferred_atoms, labels_by_idx
+
+    def _el(a: XyzAtom) -> str:
+        return a.element.strip().upper()
+
+    def _dist(a: XyzAtom, b: XyzAtom) -> float:
+        dx = a.x - b.x
+        dy = a.y - b.y
+        dz = a.z - b.z
+        return float(np.sqrt(dx * dx + dy * dy + dz * dz))
+
+    covalent_r = {
+        "H": 0.31,
+        "C": 0.76,
+        "N": 0.71,
+        "O": 0.66,
+        "S": 1.05,
+        "ZN": 1.22,
+    }
+
+    # Build bond graph among heavy atoms (exclude H, ignore Zn bonds).
+    heavy_indices = [i for i, a in enumerate(atoms) if _el(a) not in {"H"}]
+    adj: Dict[int, List[int]] = {i: [] for i in heavy_indices}
+    for i, idx_i in enumerate(heavy_indices):
+        ai = atoms[idx_i]
+        ei = _el(ai)
+        if ei == "ZN":
+            continue
+        ri = covalent_r.get(ei)
+        if ri is None:
+            continue
+        for idx_j in heavy_indices[i + 1 :]:
+            aj = atoms[idx_j]
+            ej = _el(aj)
+            if ej == "ZN":
+                continue
+            rj = covalent_r.get(ej)
+            if rj is None:
+                continue
+            d = _dist(ai, aj)
+            if d <= (ri + rj + 0.45) and d >= 0.6:
+                adj[idx_i].append(idx_j)
+                adj[idx_j].append(idx_i)
+
+    def _neighbors(idx: int, element: str | None = None) -> List[int]:
+        if idx not in adj:
+            return []
+        if element is None:
+            return adj[idx]
+        return [j for j in adj[idx] if _el(atoms[j]) == element]
+
+    def _n_neighbors(idx: int, element: str) -> int:
+        return sum(1 for j in _neighbors(idx) if _el(atoms[j]) == element)
+
+    def _dist_to_zn_idx(idx: int) -> float:
+        return _dist(atoms[idx], zn)
+
+    # Pick 4 closest potential coordinating atoms to Zn.
+    candidates: List[Tuple[float, int]] = []
+    for i, a in enumerate(atoms):
+        el = _el(a)
+        if el not in {"S", "C", "N"}:
+            continue
+        candidates.append((_dist(a, zn), i))
+
+    if not candidates:
+        print("Warning: no S/C/N atoms found in reference XYZ; reference overlays disabled.")
+        return inferred_atoms, labels_by_idx
+
+    candidates.sort(key=lambda t: t[0])
+    closest = [idx for _, idx in candidates[:4]]
+
+    inferred_atoms: List[XyzAtom] = []
+    cys_count = 0
+    his_count = 0
+
+    # CYS inference.
+    for idx in closest:
+        if _el(atoms[idx]) != "S":
+            continue
+        sg_idx = idx
+        c_neighbors = _neighbors(sg_idx, "C")
+        if not c_neighbors:
+            print("Warning: could not find C neighbor for CYS SG in reference XYZ.")
+            continue
+        cb_idx = min(c_neighbors, key=lambda j: _dist(atoms[j], atoms[sg_idx]))
+        ca_candidates = [j for j in _neighbors(cb_idx, "C") if j != sg_idx]
+        if not ca_candidates:
+            print("Warning: could not find CA neighbor for CYS CB in reference XYZ.")
+            continue
+        ca_idx = max(ca_candidates, key=_dist_to_zn_idx)
+
+        cys_count += 1
+        resseq = str(cys_count)
+        for atom_idx, atom_name in ((sg_idx, "SG"), (cb_idx, "CB"), (ca_idx, "CA")):
+            a = atoms[atom_idx]
+            labels_by_idx.setdefault(atom_idx, f"CYS {atom_name}")
+            inferred_atoms.append(
+                XyzAtom(
+                    element=a.element,
+                    x=a.x - zn.x,
+                    y=a.y - zn.y,
+                    z=a.z - zn.z,
+                    meta={"RES": "CYS", "ATOM": atom_name, "RESSEQ": resseq, "CHAIN": "A"},
+                    raw_comment="",
+                )
+            )
+
+    # HIS inference.
+    def _pick_his_stem_from_coord(coord_idx: int) -> Tuple[int, int, int] | None:
+        """Return (cg_idx, cb_idx, ca_idx) for a coordinating N/C if possible.
+
+        Uses ring order: CA-CB-CG-CD2-NE2-CE1-ND1-CG.
+        CG should be bonded to CB (carbon with no N neighbors) and be in the ring.
+        """
+        # If coord is a carbon, try to find a bonded N and use that as coord.
+        coord_el = _el(atoms[coord_idx])
+        if coord_el == "C":
+            n_neighbors = _neighbors(coord_idx, "N")
+            if n_neighbors:
+                coord_idx = n_neighbors[0]
+
+        # Search within the imidazole ring neighborhood for CG.
+        max_depth = 4
+        depth_map: Dict[int, int] = {coord_idx: 0}
+        q = deque([coord_idx])
+        while q:
+            node = q.popleft()
+            depth = depth_map[node]
+            if depth >= max_depth:
+                continue
+            for nb in _neighbors(node):
+                if _el(atoms[nb]) not in {"C", "N"}:
+                    continue
+                if nb in depth_map:
+                    continue
+                depth_map[nb] = depth + 1
+                q.append(nb)
+
+        cg_candidates: List[Tuple[int, float, int]] = []
+        for c_idx, depth in depth_map.items():
+            if _el(atoms[c_idx]) != "C":
+                continue
+            # CG must be in ring (has N neighbor) and have a CB neighbor (carbon with no N neighbors).
+            if _n_neighbors(c_idx, "N") == 0:
+                continue
+            cb_candidates = [
+                j
+                for j in _neighbors(c_idx, "C")
+                if _n_neighbors(j, "N") == 0
+            ]
+            if not cb_candidates:
+                continue
+            cg_candidates.append((depth, _dist(atoms[c_idx], atoms[coord_idx]), c_idx))
+
+        if not cg_candidates:
+            return None
+
+        cg_candidates.sort(key=lambda t: (t[0], t[1]))
+        _, _, cg_idx = cg_candidates[0]
+
+        cb_candidates = [
+            j
+            for j in _neighbors(cg_idx, "C")
+            if _n_neighbors(j, "N") == 0
+        ]
+        if not cb_candidates:
+            return None
+        cb_idx = min(cb_candidates, key=lambda j: _dist(atoms[j], atoms[cg_idx]))
+
+        ca_candidates = [j for j in _neighbors(cb_idx, "C") if j != cg_idx]
+        if not ca_candidates:
+            return None
+        ca_idx = max(ca_candidates, key=_dist_to_zn_idx)
+        return (cg_idx, cb_idx, ca_idx)
+
+        return None
+
+    for idx in closest:
+        if _el(atoms[idx]) not in {"N", "C"}:
+            continue
+        coord_idx = idx
+        coord_el = _el(atoms[coord_idx])
+
+        stem = _pick_his_stem_from_coord(coord_idx)
+        if stem is None:
+            print("Warning: could not fully infer HIS sidechain for coordinating atom in reference XYZ.")
+            # Still include coordinating atom distance if it is N.
+            if coord_el == "N":
+                his_count += 1
+                resseq = str(100 + his_count)
+                a = atoms[coord_idx]
+                labels_by_idx.setdefault(coord_idx, "HIS ND1")
+                inferred_atoms.append(
+                    XyzAtom(
+                        element=a.element,
+                        x=a.x - zn.x,
+                        y=a.y - zn.y,
+                        z=a.z - zn.z,
+                        meta={"RES": "HIS", "ATOM": "ND1", "RESSEQ": resseq, "CHAIN": "A"},
+                        raw_comment="",
+                    )
+                )
+            continue
+
+        cg_idx, cb_idx, ca_idx = stem
+        his_count += 1
+        resseq = str(100 + his_count)
+
+        # Coordinating atom label: ND1 by default.
+        a_coord = atoms[coord_idx]
+        labels_by_idx.setdefault(coord_idx, "HIS ND1")
+        inferred_atoms.append(
+            XyzAtom(
+                element=a_coord.element,
+                x=a_coord.x - zn.x,
+                y=a_coord.y - zn.y,
+                z=a_coord.z - zn.z,
+                meta={"RES": "HIS", "ATOM": "ND1", "RESSEQ": resseq, "CHAIN": "A"},
+                raw_comment="",
+            )
+        )
+        for atom_idx, atom_name in ((cg_idx, "CG"), (cb_idx, "CB"), (ca_idx, "CA")):
+            a = atoms[atom_idx]
+            labels_by_idx.setdefault(atom_idx, f"HIS {atom_name}")
+            inferred_atoms.append(
+                XyzAtom(
+                    element=a.element,
+                    x=a.x - zn.x,
+                    y=a.y - zn.y,
+                    z=a.z - zn.z,
+                    meta={"RES": "HIS", "ATOM": atom_name, "RESSEQ": resseq, "CHAIN": "A"},
+                    raw_comment="",
+                )
+            )
+
+    if not inferred_atoms:
+        print("Warning: no reference residues could be inferred; reference overlays disabled.")
+
+    return inferred_atoms, labels_by_idx
+
+
+def _reference_metrics_from_elements(
+    atoms: List[XyzAtom],
+    metric_specs: List[MetricSpec],
+) -> Dict[str, List[float]]:
+    """Infer reference metrics from element-only XYZ (no metadata)."""
+    metrics: Dict[str, List[float]] = {spec.key: [] for spec in metric_specs}
+    inferred_atoms, _ = _infer_reference_atoms_and_labels(atoms)
+    if not inferred_atoms:
+        return metrics
+    return {spec.key: spec.compute(inferred_atoms) for spec in metric_specs}
+
+
+def plot_reference_xyz_py3dmol(reference_path: Path, out_html: Path) -> None:
+    """Write a py3Dmol HTML for reference XYZ with hover labels for inferred atoms."""
+    try:
+        import py3Dmol
+    except Exception as e:  # pragma: no cover
+        print(
+            "py3Dmol is required for the reference viewer. Install it with: pip install py3dmol\n"
+            f"Import error: {e}"
+        )
+        return
+
+    xyz_text = reference_path.read_text(encoding="utf-8")
+    atoms = parse_xyz_atoms(reference_path)
+    inferred_atoms, labels_by_idx = _infer_reference_atoms_and_labels(atoms)
+
+    # Build hover labels per atom index.
+    labels: List[str] = []
+    for i, a in enumerate(atoms):
+        label = labels_by_idx.get(i)
+        if label is None:
+            label = a.element.strip() if a.element else "atom"
+        labels.append(label)
+
+    labels_json = json.dumps(labels)
+
+    view = py3Dmol.view(width=900, height=650)
+    view.addModel(xyz_text, "xyz")
+    view.setStyle(
+        {},
+        {
+            "stick": {"radius": 0.18, "colorscheme": "Jmol"},
+            "sphere": {"radius": 0.33, "colorscheme": "Jmol"},
+        },
+    )
+    view.zoomTo()
+
+    hover_on = (
+        "function(atom, viewer) {"
+        f"var labels = {labels_json};"
+        "var idx = (atom.index !== undefined) ? atom.index : (atom.serial !== undefined ? atom.serial - 1 : -1);"
+        "var msg = (idx >= 0 && idx < labels.length) ? labels[idx] : '';"
+        "if (!msg) { msg = (atom.elem || 'atom'); }"
+        "var el = document.getElementById('hoverinfo'); if (el) { el.textContent = msg; }"
+        "}"
+    )
+    hover_off = "function(atom, viewer) { var el = document.getElementById('hoverinfo'); if (el) { el.textContent = ''; } }"
+    view.setHoverable({}, True, hover_on, hover_off)
+
+    out_html.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        view.write_html(str(out_html))
+    except Exception:
+        if hasattr(view, "_make_html"):
+            out_html.write_text(view._make_html(), encoding="utf-8")
+        else:
+            raise
+
+    html = out_html.read_text(encoding="utf-8")
+    header_html = (
+        "<div id=\"titlebar\" style=\"font-family: sans-serif; padding: 10px 12px; border-bottom: 1px solid #ddd;\">"
+        f"<div style=\"font-size: 16px; font-weight: 600;\">Reference XYZ: {reference_path.name}</div>"
+        "<div id=\"hoverinfo\" style=\"margin-top: 6px; font-size: 13px; color: #333; min-height: 1.2em;\"></div>"
+        "</div>"
+    )
+    if "id=\"hoverinfo\"" not in html:
+        if "<body" in html and ">" in html:
+            body_open_end = html.find(">", html.find("<body"))
+            if body_open_end != -1:
+                html = html[: body_open_end + 1] + "\n" + header_html + "\n" + html[body_open_end + 1 :]
+    out_html.write_text(html, encoding="utf-8")
+
+    print(f"Wrote reference py3Dmol HTML: {out_html}")
 
 
 def plot_resseq_paths(
@@ -1548,11 +1947,16 @@ def _build_metric_specs() -> List[MetricSpec]:
 def _generate_histograms(
     metrics: Dict[str, MetricAccum],
     metric_specs: List[MetricSpec],
+    *,
+    reference_metrics: Dict[str, List[float]] | None = None,
+    reference_label: str | None = None,
 ) -> None:
     for spec in metric_specs:
         acc = metrics[spec.key]
         if not acc.values:
             continue
+        ref_vals = reference_metrics.get(spec.key) if reference_metrics else None
+        label = _format_reference_label(ref_vals or [], unit=spec.unit) if reference_metrics else reference_label
         plot_bond_length_histogram(
             acc.values,
             acc.sources,
@@ -1562,6 +1966,8 @@ def _generate_histograms(
             bins=spec.bins,
             color=spec.color,
             unit=spec.unit,
+            reference_values=ref_vals,
+            reference_label=label,
         )
 
 
@@ -1575,7 +1981,12 @@ def _print_metric_summaries(
         _print_metric_summary(spec, metrics[spec.key], total_files=total_files)
 
 
-def run_check_mode(xyz_dir: Path, *, open_html: bool) -> None:
+def run_check_mode(
+    xyz_dir: Path,
+    *,
+    open_html: bool,
+    reference_path: Path | None = None,
+) -> None:
     all_xyz = find_xyz_files(xyz_dir)
     if not all_xyz:
         print(f"No .xyz files found in: {xyz_dir}")
@@ -1603,6 +2014,28 @@ def run_check_mode(xyz_dir: Path, *, open_html: bool) -> None:
     }
     his_metric_keys = {"his_coord_center", "his_ca_center", "his_cb_center", "his_cg_center"}
     metrics: Dict[str, MetricAccum] = {spec.key: MetricAccum(values=[], sources=[]) for spec in metric_specs}
+
+    reference_metrics: Dict[str, List[float]] | None = None
+    reference_label: str | None = None
+    if reference_path is not None:
+        print(f"Loading reference XYZ: {reference_path}")
+        ref_atoms = parse_xyz_atoms(reference_path)
+        if not ref_atoms:
+            print(f"Warning: reference XYZ appears empty or unreadable: {reference_path}")
+        if any(a.meta for a in ref_atoms):
+            reference_metrics = {spec.key: spec.compute(ref_atoms) for spec in metric_specs}
+        else:
+            print("Reference XYZ has no metadata; using element-based nearest-4-to-Zn inference.")
+            reference_metrics = _reference_metrics_from_elements(ref_atoms, metric_specs)
+        reference_label = "ORCA Reference"
+        plot_reference_xyz_py3dmol(reference_path, reference_path.with_suffix(".html"))
+        print("Reference metrics:")
+        for spec in metric_specs:
+            _print_values_summary(
+                f"  - {spec.title}",
+                reference_metrics.get(spec.key, []),
+                unit=spec.unit,
+            )
 
     for p in all_xyz:
         atoms = parse_xyz_atoms(p)
@@ -1652,7 +2085,12 @@ def run_check_mode(xyz_dir: Path, *, open_html: bool) -> None:
     print(f"Outliers with 3 residues: {outliers_with_3}")
     print(f"Outliers with 5 residues: {outliers_with_5}")
     _print_metric_summaries(metrics, metric_specs, total_files=len(all_xyz))
-    _generate_histograms(metrics, metric_specs)
+    _generate_histograms(
+        metrics,
+        metric_specs,
+        reference_metrics=reference_metrics,
+        reference_label=reference_label,
+    )
     if open_html:
         print(f"Opened {min(num_open, max_open)}/{len(outliers)} HTML files (max {max_open}).")
 
