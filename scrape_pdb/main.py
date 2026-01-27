@@ -62,7 +62,7 @@ def _log_running_rejection_stats(
             atoms = ",".join(item["atom_names"]) or "<any>"
             miss = item["missing"]
             mismatch = item["naming_mismatch"]
-            logger.info(f"  - Req {i}: resnames=[{expected}] atom_names=[{atoms}] min_count={item['min_count']}")
+            logger.info(f"  - Req {i}: resnames=[{expected}] atom_names=[{atoms}] count={item['count']}")
             logger.info(f"    missing={miss} naming_mismatch={mismatch}")
             top = item["seen_resnames_for_atom_names"].most_common(max_seen_resnames)
             if top:
@@ -127,7 +127,7 @@ def run_pipeline(config_path: str, verbose: bool = False) -> int:
                 {
                     "expected_resnames": list(getattr(req, "resnames", None) or ([getattr(req, "resname", None)] if getattr(req, "resname", None) else [])),
                     "atom_names": list(getattr(req, "atom_names", None) or []),
-                    "min_count": int(getattr(req, "min_count", 1)),
+                    "count": int(getattr(req, "count", getattr(req, "min_count", 1))),
                     "missing": 0,
                     "naming_mismatch": 0,
                     "seen_resnames_for_atom_names": Counter(),

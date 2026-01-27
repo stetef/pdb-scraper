@@ -15,12 +15,13 @@ def passes_ligand_requirements(
 ) -> bool:
     """Return True if the coordinating neighbors satisfy all ligand requirements.
 
-    A requirement is expected to have attributes:
-      - resname: str (e.g. "CYS")
-      - atom_names: Optional[list[str]] (e.g. ["SG"])
-      - min_count: int
+        A requirement is expected to have attributes:
+            - resname: str (e.g. "CYS")
+            - atom_names: Optional[list[str]] (e.g. ["SG"])
+            - count: int
 
     Matching is done on Atom.resname (uppercased) and Atom.atom_name (stripped+uppercased).
+    The requirement is an exact count (not a minimum).
     """
 
     if not ligand_requirements:
@@ -50,9 +51,10 @@ def passes_ligand_requirements(
 
         atom_names = getattr(req, "atom_names", None)
         try:
-            min_count = int(getattr(req, "min_count", 1))
+            required_count = int(getattr(req, "count", getattr(req, "min_count", 1)))
         except Exception:
-            min_count = 1
+            required_count = 1
+        required_count = max(0, required_count)
 
         if atom_names:
             # Any of the atom_names count toward the requirement.
@@ -63,7 +65,7 @@ def passes_ligand_requirements(
         else:
             count = sum(res_counts.get(rn, 0) for rn in resnames_u)
 
-        if count < max(0, min_count):
+        if count != required_count:
             return False
 
     return True
@@ -101,10 +103,10 @@ def diagnose_ligand_requirements(
         atom_names_u = [str(x).strip().upper() for x in (atom_names or []) if str(x).strip()]
 
         try:
-            min_count = int(getattr(req, "min_count", 1))
+            required_count = int(getattr(req, "count", getattr(req, "min_count", 1)))
         except Exception:
-            min_count = 1
-        min_count = max(0, min_count)
+            required_count = 1
+        required_count = max(0, required_count)
 
         if atom_names_u:
             # Count matches by atom name regardless of residue name (to detect naming mismatches)
@@ -126,7 +128,7 @@ def diagnose_ligand_requirements(
                 "req_index": idx,
                 "expected_resnames": resnames_u,
                 "atom_names": atom_names_u or None,
-                "min_count": min_count,
+                "count": required_count,
                 "count_allowed": int(count_allowed),
                 "count_any_resname": int(count_any_resname),
                 "resname_counts_for_atom_names": dict(resname_counts_for_atom_names),

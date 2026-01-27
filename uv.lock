@@ -337,6 +337,29 @@ wheels = [
 ]
 
 [[package]]
+name = "openbabel-wheel"
+version = "3.1.1.22"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/75/55/c916675c49beb64256bd108f4a797111cedca592c9be0c931014b8654806/openbabel-wheel-3.1.1.22.tar.gz", hash = "sha256:d12e07f8e2b2a8a9007b486087fdeb731cedb5b14129bf93ad3d2c5a72e54d08", size = 13246, upload-time = "2025-05-20T14:27:41.725Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0e/91/df492446daefef9ba3c97e1555b1a7abb4ab9a21f00744689fec8e10d53e/openbabel_wheel-3.1.1.22-cp312-cp312-macosx_13_0_arm64.whl", hash = "sha256:48846ac5c8dff5589fd7834fbc1ee0d3a5d67ed544ef81b716db6932a27c34c2", size = 11517993, upload-time = "2025-05-20T14:26:30.741Z" },
+    { url = "https://files.pythonhosted.org/packages/64/35/b5ccaa112d253fb9089db9c5390d066cab08b5401cd2ec59709937f0a746/openbabel_wheel-3.1.1.22-cp312-cp312-macosx_13_0_x86_64.whl", hash = "sha256:9189315a466da529e6422fa588163be230f0fcfb8d79e240fd9d8330fd2af8a6", size = 12390413, upload-time = "2025-05-20T14:26:33.304Z" },
+    { url = "https://files.pythonhosted.org/packages/bc/ce/e9a9553a10ec6f0a3f1a3112cd00619bb77651779b59507ce1be4dcef2a1/openbabel_wheel-3.1.1.22-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:17588f6823a1a2bc361fbdfec167e8d30d4764176b0b63a3e3127efae71aed8f", size = 15632153, upload-time = "2025-05-20T14:26:36.864Z" },
+    { url = "https://files.pythonhosted.org/packages/bc/79/a713470f17697b5ebee488929a88b2daaa3b20eb5be502d6c5cab9dbc4e2/openbabel_wheel-3.1.1.22-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:bcc3d01459489334e9acf68526db48be91ce88692c59192a0d0fb9f422f2bc9a", size = 16075937, upload-time = "2025-05-20T14:26:39.362Z" },
+    { url = "https://files.pythonhosted.org/packages/21/f3/12a0e194e735cb0f3fc6122cfd39d63f05ab2426ee4083b7de1bc4ea1242/openbabel_wheel-3.1.1.22-cp312-cp312-win_amd64.whl", hash = "sha256:e369179c9edfd35b79faa252be0b28b7b8932aee80acfced1922595b67594dbd", size = 5095492, upload-time = "2025-05-20T14:26:46.743Z" },
+    { url = "https://files.pythonhosted.org/packages/ef/c3/33947aadfba41478e04776d613c2f677bfe263e69653d406f13147b49373/openbabel_wheel-3.1.1.22-cp313-cp313-macosx_13_0_arm64.whl", hash = "sha256:1d442a81e2b39c9b1d24a3bea010ef779542056160b8a6d9e7184d72a34152d4", size = 11518042, upload-time = "2025-05-20T14:26:48.543Z" },
+    { url = "https://files.pythonhosted.org/packages/ee/3c/287dd7f2233f83244314ed39968de0593140df052a350508318ce7caa13e/openbabel_wheel-3.1.1.22-cp313-cp313-macosx_13_0_x86_64.whl", hash = "sha256:537fa4e3a48e092eea3aeb3f5eb064330d38ac6e2d1db293b22d9832160c0f21", size = 12390390, upload-time = "2025-05-20T14:26:50.756Z" },
+    { url = "https://files.pythonhosted.org/packages/44/3f/c72e325490393b463e5ae7446253aab140b5e5e407d97c7de064f341975e/openbabel_wheel-3.1.1.22-cp313-cp313-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:21d1ea864f987f93033720c3847f653f60e502cb07cbb8bcb4965da11a4976f5", size = 15632171, upload-time = "2025-05-20T14:26:52.971Z" },
+    { url = "https://files.pythonhosted.org/packages/13/ea/5f81cd018bf60301fcca9e133d3a47b8caca14576266dcdc9b38f96c7879/openbabel_wheel-3.1.1.22-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:a9986f9f5c64f69b27c416fd38f551bb00da037fe66f69dc6b0d2ef10dfc9f40", size = 16075915, upload-time = "2025-05-20T14:26:55.216Z" },
+    { url = "https://files.pythonhosted.org/packages/80/1d/8e88918fe6047d8eee9a53aa9b153bf9e098fc871cfd5c86a2a5b16e38a1/openbabel_wheel-3.1.1.22-cp313-cp313-win_amd64.whl", hash = "sha256:e98ccbc75c3fcfa225554e6def913e949aff1c6ac9bad178e47bc313ce16d596", size = 5094724, upload-time = "2025-05-20T14:26:57.818Z" },
+    { url = "https://files.pythonhosted.org/packages/2c/7b/bdb2b375120e762681f2607b402c16f0d61cb7e96904f6237b9c17cf5000/openbabel_wheel-3.1.1.22-cp313-cp313t-macosx_13_0_arm64.whl", hash = "sha256:d74da8ad712f1313dab74b5cddd40895581324f16d3a9116e8f193c926df3242", size = 11534313, upload-time = "2025-05-20T14:26:59.472Z" },
+    { url = "https://files.pythonhosted.org/packages/96/61/e8dbf08e562055ac4c7f9bf7afab4cd812eeae31a56fe17344388009873f/openbabel_wheel-3.1.1.22-cp313-cp313t-macosx_13_0_x86_64.whl", hash = "sha256:f2666af5edf3085b8b2daa64597842efa74e817c94d20f0bb9a065123b13de0d", size = 12414740, upload-time = "2025-05-20T14:27:02.082Z" },
+    { url = "https://files.pythonhosted.org/packages/08/68/d8c305508547a25800c07913e13ed99f91d840206b562393210c9d488e96/openbabel_wheel-3.1.1.22-cp313-cp313t-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:336a8aa2f7a7fa6056a63c1d40d5c0e1e0d9bacae2c3d377468e9fab34e247a5", size = 15633699, upload-time = "2025-05-20T14:27:04.768Z" },
+    { url = "https://files.pythonhosted.org/packages/4c/8b/8f4c902400ec1897afad8b27d7abf6b06ee0c00cfb73337016091a6d221b/openbabel_wheel-3.1.1.22-cp313-cp313t-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:23fada177808451a7d22f39f9e2e198c889d118ad4861b34d8fdbc1e987ad8b4", size = 16058611, upload-time = "2025-05-20T14:27:07.496Z" },
+    { url = "https://files.pythonhosted.org/packages/de/35/3c9a03a69211d71e8a1be693a498553a9bc70f0c8eebd7cbbe7d5ae5c0f3/openbabel_wheel-3.1.1.22-cp313-cp313t-win_amd64.whl", hash = "sha256:28863c6b7e169f26d6d2d58c46ec6e51492f7a82712e22a2262b6255c0935417", size = 5183064, upload-time = "2025-05-20T14:27:10.089Z" },
+]
+
+[[package]]
 name = "packaging"
 version = "25.0"
 source = { registry = "https://pypi.org/simple" }
@@ -594,6 +617,7 @@ source = { virtual = "." }
 dependencies = [
     { name = "biopython" },
     { name = "numpy" },
+    { name = "openbabel-wheel" },
     { name = "pydantic" },
     { name = "pyyaml" },
     { name = "requests" },
@@ -616,6 +640,7 @@ requires-dist = [
     { name = "flake8", marker = "extra == 'dev'" },
     { name = "isort", marker = "extra == 'dev'" },
     { name = "numpy", specifier = ">=2.3.5" },
+    { name = "openbabel-wheel", specifier = ">=3.1.1.22" },
     { name = "pre-commit", marker = "extra == 'dev'" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pytest", marker = "extra == 'dev'" },

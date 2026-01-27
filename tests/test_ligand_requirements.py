@@ -45,8 +45,8 @@ def test_passes_ligand_requirements_cys3_his1():
     ]
 
     reqs = [
-        type("R", (), {"resname": "CYS", "atom_names": ["SG"], "min_count": 3})(),
-        type("R", (), {"resname": "HIS", "atom_names": ["ND1", "NE2"], "min_count": 1})(),
+        type("R", (), {"resname": "CYS", "atom_names": ["SG"], "count": 3})(),
+        type("R", (), {"resname": "HIS", "atom_names": ["ND1", "NE2"], "count": 1})(),
     ]
 
     assert passes_ligand_requirements(neighbors, reqs) is True
@@ -61,8 +61,8 @@ def test_ligand_requirements_fail_when_missing_his():
     ]
 
     reqs = [
-        type("R", (), {"resname": "CYS", "atom_names": ["SG"], "min_count": 3})(),
-        type("R", (), {"resname": "HIS", "atom_names": ["ND1", "NE2"], "min_count": 1})(),
+        type("R", (), {"resname": "CYS", "atom_names": ["SG"], "count": 3})(),
+        type("R", (), {"resname": "HIS", "atom_names": ["ND1", "NE2"], "count": 1})(),
     ]
 
     assert passes_ligand_requirements(neighbors, reqs) is False
@@ -80,8 +80,8 @@ def test_config_parses_ligand_requirements(tmp_path):
         },
         "validation": {
             "ligand_requirements": [
-                {"resname": "cys", "atom_names": ["sg"], "min_count": 3},
-                {"resname": "his", "atom_names": ["nd1", "ne2"], "min_count": 1},
+                {"resname": "cys", "atom_names": ["sg"], "count": 3},
+                {"resname": "his", "atom_names": ["nd1", "ne2"], "count": 1},
             ]
         },
     }
@@ -95,8 +95,8 @@ def test_config_parses_ligand_requirements(tmp_path):
     assert reqs[0].resname == "CYS"
     assert reqs[0].resnames == ["CYS"]
     assert reqs[0].atom_names == ["SG"]
-    assert reqs[0].min_count == 3
+    assert reqs[0].count == 3
     assert reqs[1].resname == "HIS"
     assert reqs[1].resnames == ["HIS"]
     assert reqs[1].atom_names == ["ND1", "NE2"]
-    assert reqs[1].min_count == 1
+    assert reqs[1].count == 1

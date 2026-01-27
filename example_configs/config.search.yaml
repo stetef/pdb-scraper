@@ -63,7 +63,7 @@ validation:
   ligand_requirements:
     - resname: CYS
       atom_names: [SG]
-      min_count: 4
+      count: 4
 
 # Enable search mode
 input_mode: "search"

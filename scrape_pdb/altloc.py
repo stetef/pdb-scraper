@@ -57,12 +57,20 @@ def build_altloc_files_for_center(
         coord_distance_min: float,
         coord_distance_max: float,
         coord_filters: Optional[set[str]],
-        ligand_requirements: Optional[list[object]] = None) -> list[str]:
+        ligand_requirements: Optional[list[object]] = None,
+        coord_residue_keys: Optional[set[tuple[str, str, str]]] = None) -> list[str]:
     """
     Implements Step 6 Situations 1–3 around the chosen center.
     Returns list of written XYZ file paths.
     """
     written: list[str] = []
+
+    def keep_atom_in_cluster(a: Atom, origin: Atom) -> bool:
+        if a.serial == origin.serial:
+            return True
+        if coord_residue_keys and (a.resname.upper(), a.chain, a.resseq) in coord_residue_keys:
+            return True
+        return dist(a.coord, origin.coord) <= cutoff
 
     center_key = (center.chain, center.resseq, center.icode, center.atom_name)
     center_labels = altloc_set_for_atom_id(raw_groups, center_key)  # excludes blank
@@ -93,7 +101,7 @@ def build_altloc_files_for_center(
             chosen_atoms.append(center)
 
             # Filter by cutoff from center (to avoid drift)
-            chosen_atoms = [a for a in chosen_atoms if dist(a.coord, center.coord) <= cutoff or a.serial == center.serial]
+            chosen_atoms = [a for a in chosen_atoms if keep_atom_in_cluster(a, center)]
 
             # Apply H/water toggle
             chosen_atoms = apply_water_toggle(chosen_atoms, include_waters=include_waters)
@@ -147,7 +155,7 @@ def build_altloc_files_for_center(
                 else:
                     origin = center
                 # cutoff from origin
-                chosen_atoms = [a for a in chosen_atoms if dist(a.coord, origin.coord) <= cutoff or a.serial == origin.serial]
+                chosen_atoms = [a for a in chosen_atoms if keep_atom_in_cluster(a, origin)]
                 # Apply toggles
                 chosen_atoms = apply_water_toggle(chosen_atoms, include_waters=include_waters)
                 # Must-have on all cluster atoms (exclude center)
@@ -184,7 +192,7 @@ def build_altloc_files_for_center(
                     origin = c_lab
                 else:
                     origin = center
-                chosen_atoms = [a for a in chosen_atoms if dist(a.coord, origin.coord) <= cutoff or a.serial == origin.serial]
+                chosen_atoms = [a for a in chosen_atoms if keep_atom_in_cluster(a, origin)]
                 chosen_atoms = apply_water_toggle(chosen_atoms, include_waters=include_waters)
                 # Must-have on all cluster atoms
                 if not must_have.passes([a for a in chosen_atoms if a.serial != origin.serial]):

@@ -34,6 +34,22 @@ def select_neighbors_union(atoms: list[Atom], centers: list[Atom], cutoff: float
 def select_neighbors_from(center: Atom, atoms: list[Atom], cutoff: float) -> list[Atom]:
     return [a for a in atoms if dist(a.coord, center.coord) <= cutoff]
 
+def residue_key(a: Atom) -> tuple[str, str, str]:
+    return (a.resname.upper(), a.chain, a.resseq)
+
+def expand_selection_by_residue_keys(
+    all_atoms: list[Atom],
+    base_selected: list[Atom],
+    residue_keys: set[tuple[str, str, str]],
+) -> list[Atom]:
+    if not residue_keys:
+        return base_selected
+    selected_serials = {a.serial for a in base_selected}
+    for a in all_atoms:
+        if residue_key(a) in residue_keys:
+            selected_serials.add(a.serial)
+    return [a for a in all_atoms if a.serial in selected_serials]
+
 def apply_water_toggle(atoms: list[Atom], include_waters: bool) -> list[Atom]:
     if include_waters:
         return [a for a in atoms if a.element.upper() != "H"]
