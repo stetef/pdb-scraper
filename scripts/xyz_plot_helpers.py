@@ -16,9 +16,13 @@ from pathlib import Path
 from typing import Callable, Dict, List, Tuple
 
 
-PALETTE = ["#3A3D42", "#457B9D", "#2A9D8F", "#E63946", 
-           "#6D597A", "#F4A261", "#F4978E", "#B7410E",
-           "#4A7C59"]
+PALETTE = [
+    "#3A3D42", "#F4A261", 
+    "#457B9D", "#4A7C59",
+    "#8FA998", "#F4978E", 
+    "#6D597A", "#B7410E",
+    "#2A9D8F", "#E9C46A",
+]
 
 
 @dataclass(frozen=True)
@@ -245,6 +249,301 @@ def his_coord_bond_lengths_to_center(atoms: List[XyzAtom], *, max_residues: int 
 
     candidates.sort(key=lambda t: t[0])
     return [d for _, d in candidates[:max_residues]]
+
+
+def _angle_between_vectors(v1: np.ndarray, v2: np.ndarray) -> float | None:
+    v1_norm = float(np.linalg.norm(v1))
+    v2_norm = float(np.linalg.norm(v2))
+    if v1_norm == 0.0 or v2_norm == 0.0:
+        return None
+    cosang = float(np.dot(v1, v2) / (v1_norm * v2_norm))
+    cosang = float(np.clip(cosang, -1.0, 1.0))
+    return float(np.degrees(np.arccos(cosang)))
+
+
+def _dihedral_angle(p0: np.ndarray, p1: np.ndarray, p2: np.ndarray, p3: np.ndarray) -> float | None:
+    """Return dihedral angle in degrees for p0–p1–p2–p3."""
+    b0 = p1 - p0
+    b1 = p2 - p1
+    b2 = p3 - p2
+
+    b1_norm = float(np.linalg.norm(b1))
+    if b1_norm == 0.0:
+        return None
+
+    n1 = np.cross(b0, b1)
+    n2 = np.cross(b1, b2)
+    n1_norm = float(np.linalg.norm(n1))
+    n2_norm = float(np.linalg.norm(n2))
+    if n1_norm == 0.0 or n2_norm == 0.0:
+        return None
+
+    b1u = b1 / b1_norm
+    m1 = np.cross(n1, b1u)
+
+    x = float(np.dot(n1, n2))
+    y = float(np.dot(m1, n2))
+    return float(np.degrees(np.arctan2(y, x)))
+
+
+def _his_atoms_by_residue(
+    atoms: List[XyzAtom],
+    *,
+    required_atoms: set[str],
+) -> Dict[Tuple[str, str], Dict[str, XyzAtom]]:
+    by_residue: Dict[Tuple[str, str], Dict[str, XyzAtom]] = {}
+    for a in atoms:
+        if a.meta.get("RES") != "HIS":
+            continue
+        atom_name = a.meta.get("ATOM")
+        if atom_name not in required_atoms:
+            continue
+        chain = a.meta.get("CHAIN", "")
+        resseq = a.meta.get("RESSEQ")
+        if not resseq:
+            continue
+        k = (chain, resseq)
+        by_residue.setdefault(k, {})[atom_name] = a
+    return by_residue
+
+
+def _select_his_coord_residues(
+    atoms: List[XyzAtom],
+    *,
+    max_residues: int = 4,
+    required_atoms: set[str] | None = None,
+) -> List[Tuple[str, Dict[str, XyzAtom]]]:
+    required = required_atoms or {"ND1", "NE2"}
+    required = set(required) | {"ND1", "NE2"}
+    by_residue = _his_atoms_by_residue(atoms, required_atoms=required)
+
+    candidates: List[Tuple[float, str, Dict[str, XyzAtom]]] = []
+    for atom_map in by_residue.values():
+        best = None
+        best_d2 = None
+        best_name = None
+        for name in ("ND1", "NE2"):
+            a = atom_map.get(name)
+            if a is None:
+                continue
+            d2 = float(a.x * a.x + a.y * a.y + a.z * a.z)
+            if best_d2 is None or d2 < best_d2:
+                best_d2 = d2
+                best = a
+                best_name = name
+        if best is None or best_d2 is None or best_name is None:
+            continue
+        candidates.append((best_d2, best_name, atom_map))
+
+    candidates.sort(key=lambda t: t[0])
+    return [(name, atom_map) for _, name, atom_map in candidates[:max_residues]]
+
+
+def his_coord_distances_by_atom(
+    atoms: List[XyzAtom],
+    *,
+    max_residues: int = 4,
+) -> Dict[str, List[float]]:
+    """Return Zn→ND1 and Zn→NE2 distances for selected coordinating HIS residues.
+
+    Residues are selected by smallest coordinating-atom distance to origin, then
+    distances are grouped by the coordinating atom name (ND1 vs NE2).
+    """
+    selected = _select_his_coord_residues(atoms, max_residues=max_residues)
+    by_atom: Dict[str, List[float]] = {"ND1": [], "NE2": []}
+    for coord_name, atom_map in selected:
+        coord = atom_map.get(coord_name)
+        if coord is None:
+            continue
+        dist = float(np.sqrt(coord.x * coord.x + coord.y * coord.y + coord.z * coord.z))
+        by_atom[coord_name].append(dist)
+    return by_atom
+
+
+def his_coord_cg_angles_by_atom(
+    atoms: List[XyzAtom],
+    *,
+    max_residues: int = 4,
+) -> Dict[str, List[float]]:
+    """Return angle Zn–N–CG (N=ND1/NE2) grouped by coordinating atom.
+
+    Uses the same residue selection as `his_coord_distances_by_atom`.
+    """
+    selected = _select_his_coord_residues(
+        atoms,
+        max_residues=max_residues,
+        required_atoms={"ND1", "NE2", "CG"},
+    )
+    by_atom: Dict[str, List[float]] = {"ND1": [], "NE2": []}
+    for coord_name, atom_map in selected:
+        coord = atom_map.get(coord_name)
+        cg = atom_map.get("CG")
+        if coord is None or cg is None:
+            continue
+        v1 = np.asarray((-coord.x, -coord.y, -coord.z), dtype=float)
+        v2 = np.asarray((cg.x - coord.x, cg.y - coord.y, cg.z - coord.z), dtype=float)
+        ang = _angle_between_vectors(v1, v2)
+        if ang is None:
+            continue
+        by_atom[coord_name].append(ang)
+    return by_atom
+
+
+def his_atom_distances_by_coord_atom(
+    atoms: List[XyzAtom],
+    atom_name: str,
+    *,
+    max_residues: int = 4,
+) -> Dict[str, List[float]]:
+    """Return Zn→atom distances grouped by coordinating atom (ND1/NE2)."""
+    selected = _select_his_coord_residues(
+        atoms,
+        max_residues=max_residues,
+        required_atoms={"ND1", "NE2", atom_name},
+    )
+    by_atom: Dict[str, List[float]] = {"ND1": [], "NE2": []}
+    for coord_name, atom_map in selected:
+        target = atom_map.get(atom_name)
+        if target is None:
+            continue
+        dist = float(np.sqrt(target.x * target.x + target.y * target.y + target.z * target.z))
+        by_atom[coord_name].append(dist)
+    return by_atom
+
+
+def his_coord_cg_ca_angles_by_atom(
+    atoms: List[XyzAtom],
+    *,
+    max_residues: int = 4,
+) -> Dict[str, List[float]]:
+    """Return angle ND/NE–CG–CB grouped by coordinating atom."""
+    selected = _select_his_coord_residues(
+        atoms,
+        max_residues=max_residues,
+        required_atoms={"ND1", "NE2", "CG", "CB"},
+    )
+    by_atom: Dict[str, List[float]] = {"ND1": [], "NE2": []}
+    for coord_name, atom_map in selected:
+        coord = atom_map.get(coord_name)
+        cg = atom_map.get("CG")
+        cb = atom_map.get("CB")
+        if coord is None or cg is None or cb is None:
+            continue
+        v1 = np.asarray((coord.x - cg.x, coord.y - cg.y, coord.z - cg.z), dtype=float)
+        v2 = np.asarray((cb.x - cg.x, cb.y - cg.y, cb.z - cg.z), dtype=float)
+        ang = _angle_between_vectors(v1, v2)
+        if ang is None:
+            continue
+        by_atom[coord_name].append(ang)
+    return by_atom
+
+
+def his_cg_cb_ca_angles_by_atom(
+    atoms: List[XyzAtom],
+    *,
+    max_residues: int = 4,
+) -> Dict[str, List[float]]:
+    """Return angle CG–CB–CA grouped by coordinating atom."""
+    selected = _select_his_coord_residues(
+        atoms,
+        max_residues=max_residues,
+        required_atoms={"ND1", "NE2", "CG", "CB", "CA"},
+    )
+    by_atom: Dict[str, List[float]] = {"ND1": [], "NE2": []}
+    for coord_name, atom_map in selected:
+        cg = atom_map.get("CG")
+        cb = atom_map.get("CB")
+        ca = atom_map.get("CA")
+        if cg is None or cb is None or ca is None:
+            continue
+        v1 = np.asarray((cg.x - cb.x, cg.y - cb.y, cg.z - cb.z), dtype=float)
+        v2 = np.asarray((ca.x - cb.x, ca.y - cb.y, ca.z - cb.z), dtype=float)
+        ang = _angle_between_vectors(v1, v2)
+        if ang is None:
+            continue
+        by_atom[coord_name].append(ang)
+    return by_atom
+
+
+def his_coord_zn_cg_ca_dihedral_by_atom(
+    atoms: List[XyzAtom],
+    *,
+    max_residues: int = 4,
+) -> Dict[str, List[float]]:
+    """Return dihedral Zn–N–CG–CA grouped by coordinating atom."""
+    selected = _select_his_coord_residues(
+        atoms,
+        max_residues=max_residues,
+        required_atoms={"ND1", "NE2", "CG", "CA"},
+    )
+    by_atom: Dict[str, List[float]] = {"ND1": [], "NE2": []}
+    p0 = np.asarray((0.0, 0.0, 0.0), dtype=float)
+    for coord_name, atom_map in selected:
+        coord = atom_map.get(coord_name)
+        cg = atom_map.get("CG")
+        ca = atom_map.get("CA")
+        if coord is None or cg is None or ca is None:
+            continue
+        p1 = np.asarray((coord.x, coord.y, coord.z), dtype=float)
+        p2 = np.asarray((cg.x, cg.y, cg.z), dtype=float)
+        p3 = np.asarray((ca.x, ca.y, ca.z), dtype=float)
+        ang = _dihedral_angle(p0, p1, p2, p3)
+        if ang is None:
+            continue
+        by_atom[coord_name].append(ang)
+    return by_atom
+
+
+def cys_mean_coord_distance(atoms: List[XyzAtom], *, max_sgs: int = 4) -> float | None:
+    """Return mean Zn→SG distance per structure (nearest SGs)."""
+    dists = sg_bond_lengths_to_center(atoms, max_sgs=max_sgs)
+    if not dists:
+        return None
+    return float(np.mean(dists))
+
+
+def his_mean_coord_distance(atoms: List[XyzAtom], *, max_residues: int = 4) -> float | None:
+    """Return mean Zn→ND1/NE2 distance per structure (selected residues)."""
+    dists = his_coord_bond_lengths_to_center(atoms, max_residues=max_residues)
+    if not dists:
+        return None
+    return float(np.mean(dists))
+
+
+def his_coordination_atom_counts(
+    atoms: List[XyzAtom],
+    *,
+    max_atoms: int = 4,
+) -> Tuple[int, int]:
+    """Count ND1 vs NE2 among the closest coordinating atoms (CYS/HIS) per file."""
+    candidates: List[Tuple[float, str]] = []
+
+    # CYS candidates: SG atoms (one per residue)
+    cys_by_res = _cys_atoms_by_residue(atoms, required_atoms={"SG"})
+    for atom_map in cys_by_res.values():
+        sg = atom_map.get("SG")
+        if sg is None:
+            continue
+        d2 = float(sg.x * sg.x + sg.y * sg.y + sg.z * sg.z)
+        candidates.append((d2, "CYS"))
+
+    # HIS candidates: nearest ND1/NE2 per residue
+    his_selected = _select_his_coord_residues(atoms, max_residues=999)
+    for coord_name, atom_map in his_selected:
+        coord = atom_map.get(coord_name)
+        if coord is None:
+            continue
+        d2 = float(coord.x * coord.x + coord.y * coord.y + coord.z * coord.z)
+        candidates.append((d2, coord_name))
+
+    if not candidates:
+        return (0, 0)
+
+    candidates.sort(key=lambda t: t[0])
+    closest = candidates[:max_atoms]
+    nd1_count = sum(1 for _, name in closest if name == "ND1")
+    ne2_count = sum(1 for _, name in closest if name == "NE2")
+    return (nd1_count, ne2_count)
 
 
 def his_atom_distances_selected_by_coord(
@@ -834,6 +1133,126 @@ def plot_bond_length_histogram(
     if reference_values:
         ax.legend(loc="best")
 
+    plt.tight_layout()
+
+    out_path = Path(out_png_name)
+    if out_path.suffix.lower() != ".png":
+        out_path = out_path.with_suffix(out_path.suffix + ".png") if out_path.suffix else out_path.with_suffix(".png")
+    if not out_path.is_absolute():
+        out_path = Path.cwd() / out_path
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        fig.savefig(out_path, dpi=200)
+        print(f"Saved histogram PNG: {out_path}")
+    except Exception as e:
+        print(f"Failed to save PNG '{out_path}': {e}")
+
+    plt.show()
+
+
+def plot_overlay_histogram(
+    series: List[List[float]],
+    labels: List[str],
+    colors: List[str],
+    *,
+    title: str,
+    xlabel: str,
+    out_png_name: str,
+    bins: int | str = "auto",
+    unit: str = "Å",
+) -> None:
+    """Plot multiple distributions on a single histogram (no hover UI)."""
+    try:
+        import matplotlib.pyplot as plt
+    except Exception as e:  # pragma: no cover
+        print(
+            "matplotlib is required for the histogram plot. Install it with: pip install matplotlib\n"
+            f"Import error: {e}"
+        )
+        return
+
+    if not any(series):
+        print("No values collected; skipping overlay histogram plot.")
+        return
+
+    fig, ax = plt.subplots()
+    ax.set_axisbelow(True)
+    ax.grid(axis="both", zorder=0, alpha=0.5)
+
+    ax.hist(
+        series,
+        bins=bins,
+        label=labels,
+        color=colors,
+        alpha=0.7,
+        edgecolor="black",
+        zorder=5,
+    )
+
+    plt.title(title)
+    plt.xlabel(xlabel)
+    plt.ylabel("Count")
+    ax.set_xlabel(xlabel)
+    ax.legend(loc="best")
+    plt.tight_layout()
+
+    out_path = Path(out_png_name)
+    if out_path.suffix.lower() != ".png":
+        out_path = out_path.with_suffix(out_path.suffix + ".png") if out_path.suffix else out_path.with_suffix(".png")
+    if not out_path.is_absolute():
+        out_path = Path.cwd() / out_path
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        fig.savefig(out_path, dpi=200)
+        print(f"Saved histogram PNG: {out_path}")
+    except Exception as e:
+        print(f"Failed to save PNG '{out_path}': {e}")
+
+    plt.show()
+
+
+def plot_coord_atom_count_histogram(
+    nd1_counts: List[int],
+    ne2_counts: List[int],
+    *,
+    title: str,
+    xlabel: str,
+    out_png_name: str,
+    max_atoms: int = 4,
+) -> None:
+    """Plot side-by-side count histogram for ND1 vs NE2 coordination counts per file."""
+    try:
+        import matplotlib.pyplot as plt
+    except Exception as e:  # pragma: no cover
+        print(
+            "matplotlib is required for the histogram plot. Install it with: pip install matplotlib\n"
+            f"Import error: {e}"
+        )
+        return
+
+    if not nd1_counts and not ne2_counts:
+        print("No coordination counts collected; skipping count histogram plot.")
+        return
+
+    max_bins = max_atoms + 1
+    nd1_hist = np.bincount(np.asarray(nd1_counts, dtype=int), minlength=max_bins)
+    ne2_hist = np.bincount(np.asarray(ne2_counts, dtype=int), minlength=max_bins)
+
+    x = np.arange(max_bins)
+    width = 0.38
+
+    fig, ax = plt.subplots()
+    ax.set_axisbelow(True)
+    ax.grid(axis="y", zorder=0, alpha=0.5)
+    ax.bar(x - width / 2, nd1_hist, width, label="ND1", color=PALETTE[8], edgecolor="black", zorder=5)
+    ax.bar(x + width / 2, ne2_hist, width, label="NE2", color=PALETTE[9], edgecolor="black", zorder=5)
+
+    ax.set_xticks(x)
+    ax.set_xticklabels([str(i) for i in x])
+    plt.title(title)
+    plt.xlabel(xlabel)
+    plt.ylabel("Count (files)")
+    ax.legend(loc="best")
     plt.tight_layout()
 
     out_path = Path(out_png_name)
@@ -1894,51 +2313,31 @@ def _build_metric_specs() -> List[MetricSpec]:
             unit="°",
         ),
         MetricSpec(
-            key="his_coord_center",
-            compute=lambda atoms: his_coord_bond_lengths_to_center(atoms, max_residues=4),
-            expected_per_file=4,
-            summary_label="HIS coordinating-atom distances collected for histogram",
-            title="HIS Histogram: Zn → coordinating atom distances",
-            xlabel="Distance from Zn to HIS ND1/NE2 (Å)",
-            out_png_name="Figures/his_zn_coord_distances_histogram.png",
-            color=PALETTE[8],
-            bins=18,
+            key="cys_sg_center_mean",
+            compute=lambda atoms: [cys_mean_coord_distance(atoms, max_sgs=4)]
+            if cys_mean_coord_distance(atoms, max_sgs=4) is not None
+            else [],
+            expected_per_file=1,
+            summary_label="CYS mean SG-to-center distances collected for histogram",
+            title="CYS Histogram: mean Zn → S distance per structure",
+            xlabel="Mean distance from Zn to CYS SG (Å)",
+            out_png_name="Figures/cys_zn_sg_mean_distance_histogram.png",
+            color=PALETTE[6],
+            bins=12,
             unit="Å",
         ),
         MetricSpec(
-            key="his_ca_center",
-            compute=lambda atoms: his_atom_distances_selected_by_coord(atoms, "CA", max_residues=4),
-            expected_per_file=4,
-            summary_label="HIS CA-to-center distances collected for histogram",
-            title="HIS Histogram: Zn → Cα distances",
-            xlabel="Distance from Zn to HIS CA (Å)",
-            out_png_name="Figures/his_zn_ca_distances_histogram.png",
-            color=PALETTE[2],
-            bins=15,
-            unit="Å",
-        ),
-        MetricSpec(
-            key="his_cb_center",
-            compute=lambda atoms: his_atom_distances_selected_by_coord(atoms, "CB", max_residues=4),
-            expected_per_file=4,
-            summary_label="HIS CB-to-center distances collected for histogram",
-            title="HIS Histogram: Zn → Cβ distances",
-            xlabel="Distance from Zn to HIS CB (Å)",
-            out_png_name="Figures/his_zn_cb_distances_histogram.png",
-            color=PALETTE[1],
-            bins=15,
-            unit="Å",
-        ),
-        MetricSpec(
-            key="his_cg_center",
-            compute=lambda atoms: his_atom_distances_selected_by_coord(atoms, "CG", max_residues=4),
-            expected_per_file=4,
-            summary_label="HIS CG-to-center distances collected for histogram",
-            title="HIS Histogram: Zn → Cγ distances",
-            xlabel="Distance from Zn to HIS CG (Å)",
-            out_png_name="Figures/his_zn_cg_distances_histogram.png",
-            color=PALETTE[5],
-            bins=15,
+            key="his_coord_center_mean",
+            compute=lambda atoms: [his_mean_coord_distance(atoms, max_residues=4)]
+            if his_mean_coord_distance(atoms, max_residues=4) is not None
+            else [],
+            expected_per_file=1,
+            summary_label="HIS mean Zn→ND1/NE2 distances collected for histogram",
+            title="HIS Histogram: mean Zn → ND1/NE2 distance per structure",
+            xlabel="Mean distance from Zn to HIS ND1/NE2 (Å)",
+            out_png_name="Figures/his_zn_coord_mean_distance_histogram.png",
+            color=PALETTE[7],
+            bins=12,
             unit="Å",
         ),
     ]
@@ -2011,9 +2410,29 @@ def run_check_mode(
         "sgcb_angle",
         "sg_cb_ca_angle",
         "zn_sg_cb_ca_dihedral",
+        "cys_sg_center_mean",
     }
-    his_metric_keys = {"his_coord_center", "his_ca_center", "his_cb_center", "his_cg_center"}
+    his_metric_keys = {"his_coord_center_mean"}
     metrics: Dict[str, MetricAccum] = {spec.key: MetricAccum(values=[], sources=[]) for spec in metric_specs}
+
+    his_coord_nd1_dists: List[float] = []
+    his_coord_ne2_dists: List[float] = []
+    his_coord_nd1_angles: List[float] = []
+    his_coord_ne2_angles: List[float] = []
+    his_ca_nd1_dists: List[float] = []
+    his_ca_ne2_dists: List[float] = []
+    his_cb_nd1_dists: List[float] = []
+    his_cb_ne2_dists: List[float] = []
+    his_cg_nd1_dists: List[float] = []
+    his_cg_ne2_dists: List[float] = []
+    his_cg_cb_nd1_angles: List[float] = []
+    his_cg_cb_ne2_angles: List[float] = []
+    his_cg_cb_ca_nd1_angles: List[float] = []
+    his_cg_cb_ca_ne2_angles: List[float] = []
+    his_zn_cg_ca_nd1_dihedrals: List[float] = []
+    his_zn_cg_ca_ne2_dihedrals: List[float] = []
+    his_coord_nd1_counts: List[int] = []
+    his_coord_ne2_counts: List[int] = []
 
     reference_metrics: Dict[str, List[float]] | None = None
     reference_label: str | None = None
@@ -2050,6 +2469,42 @@ def run_check_mode(
             if spec.key in his_metric_keys and his_count == 0:
                 continue
             _accumulate_metric(metrics, spec, atoms, source_name=p.name)
+
+        coord_by_atom = his_coord_distances_by_atom(atoms, max_residues=4)
+        his_coord_nd1_dists.extend(coord_by_atom.get("ND1", []))
+        his_coord_ne2_dists.extend(coord_by_atom.get("NE2", []))
+
+        ca_by_atom = his_atom_distances_by_coord_atom(atoms, "CA", max_residues=4)
+        his_ca_nd1_dists.extend(ca_by_atom.get("ND1", []))
+        his_ca_ne2_dists.extend(ca_by_atom.get("NE2", []))
+
+        cb_by_atom = his_atom_distances_by_coord_atom(atoms, "CB", max_residues=4)
+        his_cb_nd1_dists.extend(cb_by_atom.get("ND1", []))
+        his_cb_ne2_dists.extend(cb_by_atom.get("NE2", []))
+
+        cg_by_atom = his_atom_distances_by_coord_atom(atoms, "CG", max_residues=4)
+        his_cg_nd1_dists.extend(cg_by_atom.get("ND1", []))
+        his_cg_ne2_dists.extend(cg_by_atom.get("NE2", []))
+
+        angle_by_atom = his_coord_cg_angles_by_atom(atoms, max_residues=4)
+        his_coord_nd1_angles.extend(angle_by_atom.get("ND1", []))
+        his_coord_ne2_angles.extend(angle_by_atom.get("NE2", []))
+
+        cg_cb_angle_by_atom = his_coord_cg_ca_angles_by_atom(atoms, max_residues=4)
+        his_cg_cb_nd1_angles.extend(cg_cb_angle_by_atom.get("ND1", []))
+        his_cg_cb_ne2_angles.extend(cg_cb_angle_by_atom.get("NE2", []))
+
+        cg_cb_ca_angle_by_atom = his_cg_cb_ca_angles_by_atom(atoms, max_residues=4)
+        his_cg_cb_ca_nd1_angles.extend(cg_cb_ca_angle_by_atom.get("ND1", []))
+        his_cg_cb_ca_ne2_angles.extend(cg_cb_ca_angle_by_atom.get("NE2", []))
+
+        dihedral_by_atom = his_coord_zn_cg_ca_dihedral_by_atom(atoms, max_residues=4)
+        his_zn_cg_ca_nd1_dihedrals.extend(dihedral_by_atom.get("ND1", []))
+        his_zn_cg_ca_ne2_dihedrals.extend(dihedral_by_atom.get("NE2", []))
+
+        nd1_count, ne2_count = his_coordination_atom_counts(atoms, max_atoms=4)
+        his_coord_nd1_counts.append(nd1_count)
+        his_coord_ne2_counts.append(ne2_count)
 
         n = count_cys_residues_with_ca_cb_sg(atoms)
         if n != 4:
@@ -2091,6 +2546,132 @@ def run_check_mode(
         reference_metrics=reference_metrics,
         reference_label=reference_label,
     )
+
+    if his_coord_nd1_dists or his_coord_ne2_dists:
+        _print_values_summary(
+            "HIS ND1 coordinating-atom distances",
+            his_coord_nd1_dists,
+            unit="Å",
+        )
+        _print_values_summary(
+            "HIS NE2 coordinating-atom distances",
+            his_coord_ne2_dists,
+            unit="Å",
+        )
+        plot_overlay_histogram(
+            [his_coord_nd1_dists, his_coord_ne2_dists],
+            ["ND1", "NE2"],
+            [PALETTE[2], PALETTE[4]],
+            title="HIS Histogram: Zn → ND1/NE2 distances",
+            xlabel="Distance from Zn to HIS ND1/NE2 (Å)",
+            out_png_name="Figures/his_zn_coord_distances_histogram.png",
+            bins=18,
+            unit="Å",
+        )
+
+    if his_ca_nd1_dists or his_ca_ne2_dists:
+        plot_overlay_histogram(
+            [his_ca_nd1_dists, his_ca_ne2_dists],
+            ["ND1", "NE2"],
+            [PALETTE[1], PALETTE[3]],
+            title="HIS Histogram: Zn → Cα distances (by coordinating atom)",
+            xlabel="Distance from Zn to HIS Cα (Å)",
+            out_png_name="Figures/his_zn_ca_distances_histogram.png",
+            bins=15,
+            unit="Å",
+        )
+
+    if his_cb_nd1_dists or his_cb_ne2_dists:
+        plot_overlay_histogram(
+            [his_cb_nd1_dists, his_cb_ne2_dists],
+            ["ND1", "NE2"],
+            [PALETTE[5], PALETTE[0]],
+            title="HIS Histogram: Zn → Cβ distances (by coordinating atom)",
+            xlabel="Distance from Zn to HIS Cβ (Å)",
+            out_png_name="Figures/his_zn_cb_distances_histogram.png",
+            bins=15,
+            unit="Å",
+        )
+
+    if his_cg_nd1_dists or his_cg_ne2_dists:
+        plot_overlay_histogram(
+            [his_cg_nd1_dists, his_cg_ne2_dists],
+            ["ND1", "NE2"],
+            [PALETTE[4], PALETTE[5]],
+            title="HIS Histogram: Zn → Cγ distances (by coordinating atom)",
+            xlabel="Distance from Zn to HIS Cγ (Å)",
+            out_png_name="Figures/his_zn_cg_distances_histogram.png",
+            bins=15,
+            unit="Å",
+        )
+
+    if his_coord_nd1_angles or his_coord_ne2_angles:
+        _print_values_summary(
+            "HIS ND1 Zn–N–CG angles",
+            his_coord_nd1_angles,
+            unit="°",
+        )
+        _print_values_summary(
+            "HIS NE2 Zn–N–CG angles",
+            his_coord_ne2_angles,
+            unit="°",
+        )
+        plot_overlay_histogram(
+            [his_coord_nd1_angles, his_coord_ne2_angles],
+            ["ND1", "NE2"],
+            [PALETTE[6], PALETTE[7]],
+            title="HIS Histogram: Zn–N–CG angle (N=ND1/NE2)",
+            xlabel="Angle Zn–N–CG (°)",
+            out_png_name="Figures/his_zn_coord_cg_angle_histogram.png",
+            bins=18,
+            unit="°",
+        )
+
+    if his_cg_cb_nd1_angles or his_cg_cb_ne2_angles:
+        plot_overlay_histogram(
+            [his_cg_cb_nd1_angles, his_cg_cb_ne2_angles],
+            ["ND1", "NE2"],
+            [PALETTE[8], PALETTE[9]],
+            title="HIS Histogram: N–Cγ–Cβ angle (N=ND1/NE2)",
+            xlabel="Angle ND/NE–Cγ–Cβ (°)",
+            out_png_name="Figures/his_coord_cg_cb_angle_histogram.png",
+            bins=18,
+            unit="°",
+        )
+
+    if his_cg_cb_ca_nd1_angles or his_cg_cb_ca_ne2_angles:
+        plot_overlay_histogram(
+            [his_cg_cb_ca_nd1_angles, his_cg_cb_ca_ne2_angles],
+            ["ND1", "NE2"],
+            [PALETTE[2], PALETTE[3]],
+            title="HIS Histogram: Cγ–Cβ–Cα angle (by coordinating atom)",
+            xlabel="Angle Cγ–Cβ–Cα (°)",
+            out_png_name="Figures/his_coord_cg_cb_ca_angle_histogram.png",
+            bins=18,
+            unit="°",
+        )
+
+    if his_zn_cg_ca_nd1_dihedrals or his_zn_cg_ca_ne2_dihedrals:
+        plot_overlay_histogram(
+            [his_zn_cg_ca_nd1_dihedrals, his_zn_cg_ca_ne2_dihedrals],
+            ["ND1", "NE2"],
+            [PALETTE[4], PALETTE[5]],
+            title="HIS Histogram: Zn–N–Cγ–Cα dihedral (N=ND1/NE2)",
+            xlabel="Dihedral angle Zn–N–Cγ–Cα (°)",
+            out_png_name="Figures/his_zn_coord_cg_ca_dihedral_histogram.png",
+            bins=25,
+            unit="°",
+        )
+
+    if his_coord_nd1_counts or his_coord_ne2_counts:
+        plot_coord_atom_count_histogram(
+            his_coord_nd1_counts,
+            his_coord_ne2_counts,
+            title="HIS Histogram: Coordinating atom counts among 4 closest",
+            xlabel="Count among 4 closest coordinating atoms",
+            out_png_name="Figures/his_coord_atom_counts_histogram.png",
+            max_atoms=4,
+        )
     if open_html:
         print(f"Opened {min(num_open, max_open)}/{len(outliers)} HTML files (max {max_open}).")
 
