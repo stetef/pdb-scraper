@@ -74,7 +74,18 @@ class LigandRequirement(BaseModel):
     # Optional list of residue names accepted for this requirement
     resnames: Optional[List[str]] = None
     atom_names: Optional[List[str]] = None
-    min_count: int = 1
+    count: int = 1
+    # Backwards-compatibility shim (deprecated)
+    min_count: Optional[int] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_min_count(cls, v: Any) -> Any:
+        if isinstance(v, dict):
+            if "count" not in v and "min_count" in v:
+                v = dict(v)
+                v["count"] = v.get("min_count")
+        return v
 
     @field_validator("resname", mode="before")
     @classmethod
@@ -109,9 +120,9 @@ class LigandRequirement(BaseModel):
             return None
         return out or None
 
-    @field_validator("min_count", mode="before")
+    @field_validator("count", mode="before")
     @classmethod
-    def normalize_min_count(cls, v: Any) -> int:
+    def normalize_count(cls, v: Any) -> int:
         try:
             n = int(v)
         except Exception:

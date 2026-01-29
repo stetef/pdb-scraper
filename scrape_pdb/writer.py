@@ -6,7 +6,6 @@ import csv
 import json
 from typing import Optional
 import os
-import tempfile
 
 from .models import Atom
 from .constants import CLUSTERS_CSV_FIELDS, ALTLOC_REPORT_FIELDS
@@ -15,154 +14,6 @@ from .config import PipelineConfig
 import logging
 
 logger = logging.getLogger("pipeline.writer")
-
-
-def _filter_backbone_atoms(atoms: list[Atom]) -> list[Atom]:
-    """Remove HIS/CYS backbone atoms (ATOM=N/C/O) while keeping CA and others."""
-    filtered: list[Atom] = []
-    for a in atoms:
-        if a.resname in {"HIS", "CYS"} and a.atom_name in {"N", "C", "O"}:
-            continue
-        filtered.append(a)
-    return filtered
-
-
-def _normalize_element_symbol(symbol: str) -> str:
-    if not symbol:
-        return symbol
-    if len(symbol) == 1:
-        return symbol.upper()
-    return symbol[0].upper() + symbol[1:].lower()
-
-
-def _write_normalized_xyz(input_path: Path) -> Path:
-    lines = input_path.read_text().splitlines()
-    if len(lines) < 3:
-        raise ValueError("XYZ file is too short")
-
-    header = lines[:2]
-    body = lines[2:]
-
-    normalized_body = []
-    for line in body:
-        stripped = line.strip()
-        if not stripped:
-            normalized_body.append(line)
-            continue
-        parts = stripped.split()
-        if len(parts) < 4:
-            normalized_body.append(line)
-            continue
-        parts[0] = _normalize_element_symbol(parts[0])
-        normalized_body.append(" ".join(parts))
-
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".xyz")
-    tmp_path = Path(tmp.name)
-    tmp.close()
-    tmp_path.write_text("\n".join(header + normalized_body) + "\n")
-    return tmp_path
-
-
-def _assign_implicit_h_counts(mol) -> None:
-    typical_valence = {
-        1: 1,
-        6: 4,
-        7: 3,
-        8: 2,
-        9: 1,
-        15: 3,
-        16: 2,
-        17: 1,
-        35: 1,
-        53: 1,
-    }
-
-    try:
-        from openbabel import openbabel as ob
-    except Exception:
-        return
-
-    for atom in ob.OBMolAtomIter(mol):
-        atomic_num = atom.GetAtomicNum()
-        if atomic_num in typical_valence:
-            explicit_valence = atom.GetExplicitValence()
-            needed = max(0, typical_valence[atomic_num] - explicit_valence)
-            atom.SetImplicitHCount(needed)
-
-
-def _extract_atom_comments(input_path: Path) -> list[str]:
-    lines = input_path.read_text().splitlines()
-    if len(lines) < 3:
-        return []
-    comments: list[str] = []
-    for line in lines[2:]:
-        stripped = line.strip()
-        if not stripped:
-            comments.append("")
-            continue
-        parts = stripped.split()
-        if len(parts) <= 4:
-            comments.append("")
-            continue
-        comment = " ".join(parts[4:])
-        comments.append(comment)
-    return comments
-
-
-def _restore_atom_comments(output_path: Path, comments: list[str], header_comment: str) -> None:
-    lines = output_path.read_text().splitlines()
-    if len(lines) < 3:
-        return
-
-    header = [lines[0], header_comment]
-    body = lines[2:]
-    restored_body: list[str] = []
-
-    for idx, line in enumerate(body):
-        stripped = line.strip()
-        if not stripped:
-            restored_body.append(line)
-            continue
-        if idx < len(comments) and comments[idx]:
-            restored_body.append(f"{stripped}  {comments[idx]}")
-        else:
-            restored_body.append(stripped)
-
-    output_path.write_text("\n".join(header + restored_body) + "\n")
-
-
-def _add_hydrogens_inplace(xyz_path: Path) -> None:
-    try:
-        from openbabel import openbabel as ob
-    except Exception as exc:
-        raise SystemExit("Open Babel is required to add hydrogens. Install openbabel-python.") from exc
-
-    header_lines = xyz_path.read_text().splitlines()
-    header_comment = header_lines[1] if len(header_lines) > 1 else ""
-    comments = _extract_atom_comments(xyz_path)
-    temp_path = None
-    try:
-        temp_path = _write_normalized_xyz(xyz_path)
-        conv = ob.OBConversion()
-        conv.SetInFormat("xyz")
-        conv.SetOutFormat("xyz")
-
-        mol = ob.OBMol()
-        if not conv.ReadFile(mol, str(temp_path)):
-            raise SystemExit(f"Error: Could not read {xyz_path}")
-
-        mol.ConnectTheDots()
-        mol.PerceiveBondOrders()
-        _assign_implicit_h_counts(mol)
-        mol.AddHydrogens()
-
-        if not conv.WriteFile(mol, str(xyz_path)):
-            raise SystemExit(f"Error: Could not write {xyz_path}")
-
-        _restore_atom_comments(xyz_path, comments, header_comment)
-    finally:
-        if temp_path and temp_path.exists():
-            temp_path.unlink(missing_ok=True)
 
 
 def write_xyz(path: str,
@@ -177,7 +28,6 @@ def write_xyz(path: str,
               resolution_angs: Optional[float] = None,
               extra_comment: str = "") -> None:
     """Write XYZ with origin translated to origin_atom."""
-    atoms = _filter_backbone_atoms(atoms)
     ox, oy, oz = origin_atom.coord
     translated = []
     for a in atoms:
@@ -199,8 +49,6 @@ def write_xyz(path: str,
             resseq_icode = f"{a.resseq}{a.icode}".strip()
             meta = f"RES={a.resname} CHAIN={a.chain} RESSEQ={resseq_icode} ATOM={a.atom_name} REC={a.record}"
             f.write(f"{elm:2s}  {x: .6f}  {y: .6f}  {z: .6f}  # {meta}\n")
-
-    _add_hydrogens_inplace(Path(path))
 
 def ensure_csv_headers(config: PipelineConfig):
     # Ensure output directory exists and clusters CSV has header row

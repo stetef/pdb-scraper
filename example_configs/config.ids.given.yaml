@@ -33,7 +33,7 @@ validation:
   ligand_requirements:
     - resname: CYS
       atom_names: [SG]
-      min_count: 4
+      count: 4
 
 # Legacy/Manual input support
 input_mode: "list_file"

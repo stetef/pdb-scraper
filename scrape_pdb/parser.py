@@ -12,7 +12,15 @@ from Bio.PDB.MMCIF2Dict import MMCIF2Dict
 from .altloc import group_by_id, build_altloc_files_for_center
 from .models import Atom
 from .constants import ALL_METALS
-from .cluster import determine_cluster_type, select_neighbors_union, select_neighbors_from, apply_water_toggle, select_coordinating_neighbors
+from .cluster import (
+    determine_cluster_type,
+    select_neighbors_union,
+    select_neighbors_from,
+    apply_water_toggle,
+    select_coordinating_neighbors,
+    residue_key,
+    expand_selection_by_residue_keys,
+)
 from .utils import _slice, connected_components, centroid
 from .config import PipelineConfig
 from .writer import ensure_csv_headers, write_altloc_report_header, write_clusters_csv_row, append_altloc_rows, write_xyz
@@ -383,14 +391,34 @@ def process_pdb(
         center_candidates = [m for m in comp_metals if m.atom_name.upper() == target_upper]
         if not center_candidates:
             center_for_alt = comp_metals[0]
+            target_centers = [center_for_alt]
         else:
             center_for_alt = center_candidates[0]
+            target_centers = center_candidates
+
+        # Expand selection with full residues for coordinating atoms to the target center(s)
+        coord_residue_keys: set[tuple[str, str, str]] = set()
+        for c in target_centers:
+            coord_neigh_for_res = select_coordinating_neighbors(
+                c,
+                selected_union,
+                config.validation.coordination_distance_min,
+                config.validation.coordination_distance_max,
+            )
+            for a in coord_neigh_for_res:
+                coord_residue_keys.add(residue_key(a))
+
+        selected_union_expanded = expand_selection_by_residue_keys(
+            atoms,
+            selected_union,
+            coord_residue_keys,
+        )
 
         # Attempt Step 6 generation
         alt_written = build_altloc_files_for_center(
             pdb_id=base_id,
             center=center_for_alt,
-            selected_atoms_raw=selected_union,
+            selected_atoms_raw=selected_union_expanded,
             raw_groups=raw_groups,
             cutoff=config.selection_radius,
             out_dir=config.output_dir,
@@ -407,6 +435,7 @@ def process_pdb(
             coord_distance_max=config.validation.coordination_distance_max,
             coord_filters=config.coord_filters,
             ligand_requirements=config.validation.ligand_requirements,
+            coord_residue_keys=coord_residue_keys,
         )
 
         if alt_written:
@@ -442,9 +471,9 @@ def process_pdb(
                                 diag = diagnose_ligand_requirements(coord_neigh, config.validation.ligand_requirements)
                                 for d in diag:
                                     i = d["req_index"]
-                                    if d["count_allowed"] < d["min_count"]:
+                                    if d["count_allowed"] != d["count"]:
                                         stats["ligand_requirements"]["per_req"][i]["missing"] += 1
-                                        if d["count_any_resname"] >= d["min_count"]:
+                                        if d["count_any_resname"] == d["count"]:
                                             stats["ligand_requirements"]["per_req"][i]["naming_mismatch"] += 1
                                     stats["ligand_requirements"]["per_req"][i]["seen_resnames_for_atom_names"].update(
                                         {k: int(v) for k, v in d["resname_counts_for_atom_names"].items()}
@@ -507,9 +536,9 @@ def process_pdb(
                             diag = diagnose_ligand_requirements(coord_neigh, config.validation.ligand_requirements)
                             for d in diag:
                                 i = d["req_index"]
-                                if d["count_allowed"] < d["min_count"]:
+                                if d["count_allowed"] != d["count"]:
                                     stats["ligand_requirements"]["per_req"][i]["missing"] += 1
-                                    if d["count_any_resname"] >= d["min_count"]:
+                                    if d["count_any_resname"] == d["count"]:
                                         stats["ligand_requirements"]["per_req"][i]["naming_mismatch"] += 1
                                 stats["ligand_requirements"]["per_req"][i]["seen_resnames_for_atom_names"].update(
                                     {k: int(v) for k, v in d["resname_counts_for_atom_names"].items()}
@@ -548,7 +577,7 @@ def process_pdb(
                     written_paths.append(p)
         else:
             # No altloc case → write a single base file
-            selected = apply_water_toggle(selected_union, include_waters=config.include_waters)
+            selected = apply_water_toggle(selected_union_expanded, include_waters=config.include_waters)
             # Must-have: for homo/multi_hetero apply to target metal; for multi_homo per-center rows below
             # For writing XYZ we use origin = first target center
             origin_atom = center_for_alt
@@ -582,9 +611,9 @@ def process_pdb(
                             diag = diagnose_ligand_requirements(coord_neigh, config.validation.ligand_requirements)
                             for d in diag:
                                 i = d["req_index"]
-                                if d["count_allowed"] < d["min_count"]:
+                                if d["count_allowed"] != d["count"]:
                                     stats["ligand_requirements"]["per_req"][i]["missing"] += 1
-                                    if d["count_any_resname"] >= d["min_count"]:
+                                    if d["count_any_resname"] == d["count"]:
                                         stats["ligand_requirements"]["per_req"][i]["naming_mismatch"] += 1
                                 stats["ligand_requirements"]["per_req"][i]["seen_resnames_for_atom_names"].update(
                                     {k: int(v) for k, v in d["resname_counts_for_atom_names"].items()}
@@ -633,9 +662,9 @@ def process_pdb(
                         diag = diagnose_ligand_requirements(coord_neigh, config.validation.ligand_requirements)
                         for d in diag:
                             i = d["req_index"]
-                            if d["count_allowed"] < d["min_count"]:
+                            if d["count_allowed"] != d["count"]:
                                 stats["ligand_requirements"]["per_req"][i]["missing"] += 1
-                                if d["count_any_resname"] >= d["min_count"]:
+                                if d["count_any_resname"] == d["count"]:
                                     stats["ligand_requirements"]["per_req"][i]["naming_mismatch"] += 1
                             stats["ligand_requirements"]["per_req"][i]["seen_resnames_for_atom_names"].update(
                                 {k: int(v) for k, v in d["resname_counts_for_atom_names"].items()}
