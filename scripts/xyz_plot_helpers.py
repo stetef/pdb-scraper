@@ -17,11 +17,11 @@ from typing import Callable, Dict, List, Tuple
 
 
 PALETTE = [
-    "#3A3D42", "#F4A261", 
-    "#457B9D", "#4A7C59",
-    "#8FA998", "#F4978E", 
-    "#6D597A", "#B7410E",
     "#2A9D8F", "#E9C46A",
+    "#F4A261", "#B7410E",
+    "#3A3D42", "#8FA998",
+    "#457B9D", "#4A7C59",
+    "#F4978E", "#6D597A",
 ]
 
 
@@ -1024,8 +1024,10 @@ def plot_bond_length_histogram(
     fig, ax = plt.subplots()
     # Ensure gridlines are rendered behind artists like bars.
     ax.set_axisbelow(True)
-    ax.grid(axis="both", zorder=0, alpha=0.5)
-    counts, edges, patches = ax.hist(distances, bins=bins, edgecolor="black", color=color, alpha=0.8, zorder=5)
+    ax.grid(False)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    counts, edges, patches = ax.hist(distances, bins=bins, edgecolor="black", color=color, alpha=1.0, zorder=5)
 
     if reference_values:
         label = reference_label or "reference"
@@ -1160,6 +1162,7 @@ def plot_overlay_histogram(
     out_png_name: str,
     bins: int | str = "auto",
     unit: str = "Å",
+    x_range: tuple[float, float] | None = None,
 ) -> None:
     """Plot multiple distributions on a single histogram (no hover UI)."""
     try:
@@ -1177,17 +1180,44 @@ def plot_overlay_histogram(
 
     fig, ax = plt.subplots()
     ax.set_axisbelow(True)
-    ax.grid(axis="both", zorder=0, alpha=0.5)
+    ax.grid(False)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
 
-    ax.hist(
-        series,
-        bins=bins,
-        label=labels,
-        color=colors,
-        alpha=0.7,
-        edgecolor="black",
-        zorder=5,
-    )
+    if not isinstance(bins, int):
+        raise SystemExit("overlay histograms require an integer 'bins' count")
+
+    if x_range is not None:
+        xmin, xmax = x_range
+        if xmin >= xmax:
+            raise SystemExit("overlay histogram x_range must satisfy xmin < xmax")
+
+    all_values = [v for s in series for v in s]
+    bin_edges = np.histogram_bin_edges(all_values, bins=bins)
+    for data, label, color in zip(series, labels, colors):
+        ax.hist(
+            data,
+            bins=bin_edges,
+            label=label,
+            color=color,
+            alpha=0.65,
+            edgecolor="black",
+            zorder=5,
+        )
+
+    if x_range is not None:
+        ax.set_xlim(xmin, xmax)
+
+    # Label every 3rd bin to keep tick/bin spacing aligned.
+    bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2.0
+    if x_range is not None:
+        bin_centers = bin_centers[(bin_centers >= xmin) & (bin_centers <= xmax)]
+    tick_centers = bin_centers[::3]
+    ax.set_xticks(tick_centers)
+    if unit == "Å":
+        from matplotlib.ticker import FormatStrFormatter
+
+        ax.xaxis.set_major_formatter(FormatStrFormatter("%.3f"))
 
     plt.title(title)
     plt.xlabel(xlabel)
@@ -1243,9 +1273,11 @@ def plot_coord_atom_count_histogram(
 
     fig, ax = plt.subplots()
     ax.set_axisbelow(True)
-    ax.grid(axis="y", zorder=0, alpha=0.5)
-    ax.bar(x - width / 2, nd1_hist, width, label="ND1", color=PALETTE[8], edgecolor="black", zorder=5)
-    ax.bar(x + width / 2, ne2_hist, width, label="NE2", color=PALETTE[9], edgecolor="black", zorder=5)
+    ax.grid(False)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.bar(x - width / 2, nd1_hist, width, label="ND1", color=PALETTE[0], edgecolor="black", zorder=5)
+    ax.bar(x + width / 2, ne2_hist, width, label="NE2", color=PALETTE[1], edgecolor="black", zorder=5)
 
     ax.set_xticks(x)
     ax.set_xticklabels([str(i) for i in x])
@@ -2212,7 +2244,7 @@ def _build_metric_specs() -> List[MetricSpec]:
             title="CYS Histogram: Zn → S bond lengths",
             xlabel="Distance from Zn to CYS SG (Å)",
             out_png_name="Figures/cys_zn_sg_distances_histogram.png",
-            color=PALETTE[5],
+            color=PALETTE[3],
             bins=20,
             unit="Å",
         ),
@@ -2224,7 +2256,7 @@ def _build_metric_specs() -> List[MetricSpec]:
             title="CYS Histogram: Zn → Cβ distances",
             xlabel="Distance from Zn to CYS CB (Å)",
             out_png_name="Figures/cys_zn_cb_distances_histogram.png",
-            color=PALETTE[1],
+            color=PALETTE[3],
             bins=15,
             unit="Å",
         ),
@@ -2236,7 +2268,7 @@ def _build_metric_specs() -> List[MetricSpec]:
             title="CYS Histogram: Zn → Cα distances",
             xlabel="Distance from Zn to CYS CA (Å)",
             out_png_name="Figures/cys_zn_ca_distances_histogram.png",
-            color=PALETTE[2],
+            color=PALETTE[3],
             bins=15,
             unit="Å",
         ),
@@ -2260,7 +2292,7 @@ def _build_metric_specs() -> List[MetricSpec]:
             title="CYS Histogram: Cβ → Cα distances",
             xlabel="Distance from CYS CB to CYS CA (Å)",
             out_png_name="Figures/cys_cb_ca_distances_histogram.png",
-            color=PALETTE[0],
+            color=PALETTE[3],
             bins=15,
             unit="Å",
         ),
@@ -2272,7 +2304,7 @@ def _build_metric_specs() -> List[MetricSpec]:
             title="CYS Histogram: S → Cβ distances",
             xlabel="Distance from CYS SG to CYS CB (Å)",
             out_png_name="Figures/cys_sg_cb_distances_histogram.png",
-            color=PALETTE[7],
+            color=PALETTE[3],
             bins=15,
             unit="Å",
         ),
@@ -2284,7 +2316,7 @@ def _build_metric_specs() -> List[MetricSpec]:
             title="CYS Histogram: Zn→S→Cβ angle",
             xlabel="Angle between (Zn→SG) and (SG→CB) (°)",
             out_png_name="Figures/cys_zn_sg_cb_angle_histogram.png",
-            color=PALETTE[4],
+            color=PALETTE[3],
             bins=18,
             unit="°",
         ),
@@ -2296,7 +2328,7 @@ def _build_metric_specs() -> List[MetricSpec]:
             title="CYS Histogram: S→Cβ→Cα angle",
             xlabel="Angle between (SG→CB) and (CB→CA) (°)",
             out_png_name="Figures/cys_sg_cb_ca_angle_histogram.png",
-            color=PALETTE[8],
+            color=PALETTE[3],
             bins=18,
             unit="°",
         ),
@@ -2308,7 +2340,7 @@ def _build_metric_specs() -> List[MetricSpec]:
             title="CYS Histogram: Zn→S→Cβ→Cα dihedral",
             xlabel="Dihedral angle (Zn→SG→CB→CA) (°)",
             out_png_name="Figures/cys_zn_sg_cb_ca_dihedral_histogram.png",
-            color=PALETTE[6],
+            color=PALETTE[3],
             bins=25,
             unit="°",
         ),
@@ -2322,7 +2354,7 @@ def _build_metric_specs() -> List[MetricSpec]:
             title="CYS Histogram: mean Zn → S distance per structure",
             xlabel="Mean distance from Zn to CYS SG (Å)",
             out_png_name="Figures/cys_zn_sg_mean_distance_histogram.png",
-            color=PALETTE[6],
+            color=PALETTE[3],
             bins=12,
             unit="Å",
         ),
@@ -2336,8 +2368,8 @@ def _build_metric_specs() -> List[MetricSpec]:
             title="HIS Histogram: mean Zn → ND1/NE2 distance per structure",
             xlabel="Mean distance from Zn to HIS ND1/NE2 (Å)",
             out_png_name="Figures/his_zn_coord_mean_distance_histogram.png",
-            color=PALETTE[7],
-            bins=12,
+            color=PALETTE[2],
+            bins=17,
             unit="Å",
         ),
     ]
@@ -2559,21 +2591,33 @@ def run_check_mode(
             unit="Å",
         )
         plot_overlay_histogram(
-            [his_coord_nd1_dists, his_coord_ne2_dists],
-            ["ND1", "NE2"],
-            [PALETTE[2], PALETTE[4]],
+            [his_coord_ne2_dists, his_coord_nd1_dists],
+            ["NE2", "ND1"],
+            [PALETTE[1], PALETTE[0]],
             title="HIS Histogram: Zn → ND1/NE2 distances",
             xlabel="Distance from Zn to HIS ND1/NE2 (Å)",
             out_png_name="Figures/his_zn_coord_distances_histogram.png",
-            bins=18,
+            bins=30,
             unit="Å",
+        )
+
+        plot_overlay_histogram(
+            [his_coord_ne2_dists, his_coord_nd1_dists],
+            ["NE2", "ND1"],
+            [PALETTE[1], PALETTE[0]],
+            title="HIS Histogram: Zn → ND1/NE2 distances (2.0–2.25 Å)",
+            xlabel="Distance from Zn to HIS ND1/NE2 (Å)",
+            out_png_name="Figures/his_zn_coord_distances_histogram_2.0_2.25.png",
+            bins=75,
+            unit="Å",
+            x_range=(2.0, 2.25),
         )
 
     if his_ca_nd1_dists or his_ca_ne2_dists:
         plot_overlay_histogram(
-            [his_ca_nd1_dists, his_ca_ne2_dists],
-            ["ND1", "NE2"],
-            [PALETTE[1], PALETTE[3]],
+            [his_ca_ne2_dists, his_ca_nd1_dists],
+            ["NE2", "ND1"],
+            [PALETTE[1], PALETTE[0]],
             title="HIS Histogram: Zn → Cα distances (by coordinating atom)",
             xlabel="Distance from Zn to HIS Cα (Å)",
             out_png_name="Figures/his_zn_ca_distances_histogram.png",
@@ -2583,9 +2627,9 @@ def run_check_mode(
 
     if his_cb_nd1_dists or his_cb_ne2_dists:
         plot_overlay_histogram(
-            [his_cb_nd1_dists, his_cb_ne2_dists],
-            ["ND1", "NE2"],
-            [PALETTE[5], PALETTE[0]],
+            [his_cb_ne2_dists, his_cb_nd1_dists],
+            ["NE2", "ND1"],
+            [PALETTE[1], PALETTE[0]],
             title="HIS Histogram: Zn → Cβ distances (by coordinating atom)",
             xlabel="Distance from Zn to HIS Cβ (Å)",
             out_png_name="Figures/his_zn_cb_distances_histogram.png",
@@ -2595,9 +2639,9 @@ def run_check_mode(
 
     if his_cg_nd1_dists or his_cg_ne2_dists:
         plot_overlay_histogram(
-            [his_cg_nd1_dists, his_cg_ne2_dists],
-            ["ND1", "NE2"],
-            [PALETTE[4], PALETTE[5]],
+            [his_cg_ne2_dists, his_cg_nd1_dists],
+            ["NE2", "ND1"],
+            [PALETTE[1], PALETTE[0]],
             title="HIS Histogram: Zn → Cγ distances (by coordinating atom)",
             xlabel="Distance from Zn to HIS Cγ (Å)",
             out_png_name="Figures/his_zn_cg_distances_histogram.png",
@@ -2617,9 +2661,9 @@ def run_check_mode(
             unit="°",
         )
         plot_overlay_histogram(
-            [his_coord_nd1_angles, his_coord_ne2_angles],
-            ["ND1", "NE2"],
-            [PALETTE[6], PALETTE[7]],
+            [his_coord_ne2_angles, his_coord_nd1_angles],
+            ["NE2", "ND1"],
+            [PALETTE[1], PALETTE[0]],
             title="HIS Histogram: Zn–N–CG angle (N=ND1/NE2)",
             xlabel="Angle Zn–N–CG (°)",
             out_png_name="Figures/his_zn_coord_cg_angle_histogram.png",
@@ -2629,9 +2673,9 @@ def run_check_mode(
 
     if his_cg_cb_nd1_angles or his_cg_cb_ne2_angles:
         plot_overlay_histogram(
-            [his_cg_cb_nd1_angles, his_cg_cb_ne2_angles],
-            ["ND1", "NE2"],
-            [PALETTE[8], PALETTE[9]],
+            [his_cg_cb_ne2_angles, his_cg_cb_nd1_angles],
+            ["NE2", "ND1"],
+            [PALETTE[1], PALETTE[0]],
             title="HIS Histogram: N–Cγ–Cβ angle (N=ND1/NE2)",
             xlabel="Angle ND/NE–Cγ–Cβ (°)",
             out_png_name="Figures/his_coord_cg_cb_angle_histogram.png",
@@ -2641,9 +2685,9 @@ def run_check_mode(
 
     if his_cg_cb_ca_nd1_angles or his_cg_cb_ca_ne2_angles:
         plot_overlay_histogram(
-            [his_cg_cb_ca_nd1_angles, his_cg_cb_ca_ne2_angles],
-            ["ND1", "NE2"],
-            [PALETTE[2], PALETTE[3]],
+            [his_cg_cb_ca_ne2_angles, his_cg_cb_ca_nd1_angles],
+            ["NE2", "ND1"],
+            [PALETTE[1], PALETTE[0]],
             title="HIS Histogram: Cγ–Cβ–Cα angle (by coordinating atom)",
             xlabel="Angle Cγ–Cβ–Cα (°)",
             out_png_name="Figures/his_coord_cg_cb_ca_angle_histogram.png",
@@ -2653,9 +2697,9 @@ def run_check_mode(
 
     if his_zn_cg_ca_nd1_dihedrals or his_zn_cg_ca_ne2_dihedrals:
         plot_overlay_histogram(
-            [his_zn_cg_ca_nd1_dihedrals, his_zn_cg_ca_ne2_dihedrals],
-            ["ND1", "NE2"],
-            [PALETTE[4], PALETTE[5]],
+            [his_zn_cg_ca_ne2_dihedrals, his_zn_cg_ca_nd1_dihedrals],
+            ["NE2", "ND1"],
+            [PALETTE[1], PALETTE[0]],
             title="HIS Histogram: Zn–N–Cγ–Cα dihedral (N=ND1/NE2)",
             xlabel="Dihedral angle Zn–N–Cγ–Cα (°)",
             out_png_name="Figures/his_zn_coord_cg_ca_dihedral_histogram.png",
