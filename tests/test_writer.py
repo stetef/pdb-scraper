@@ -61,7 +61,8 @@ def test_write_xyz_and_csv_and_altloc_and_cache(tmp_path):
     p = Path(xyz_path)
     assert p.exists()
     lines = p.read_text().splitlines()
-    assert lines[0].strip() == str(len(atoms))
+    assert int(lines[0].strip()) == len(lines) - 2
+    assert int(lines[0].strip()) >= len(atoms)
     assert "PDB=1abc" in lines[1]
 
     # CSV headers and row

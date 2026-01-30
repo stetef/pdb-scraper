@@ -7,6 +7,7 @@ Usage:
     python scripts/generate_combined_figures.py
 """
 
+import argparse
 import base64
 from pathlib import Path
 
@@ -28,14 +29,7 @@ def format_caption(filename: str) -> str:
 
 
 def _detect_grid_columns(png_files: list[Path]) -> int:
-    names = [p.name.lower() for p in png_files]
-    has_cys = any("cys" in n for n in names)
-    has_his = any("his" in n for n in names)
-    if has_cys and has_his:
-        return 5
-    if has_his and not has_cys:
-        return 2
-    return 3
+    return 4
 
 
 def _detect_system_label(figures_dir: Path, png_files: list[Path]) -> str:
@@ -60,7 +54,7 @@ def _detect_system_label(figures_dir: Path, png_files: list[Path]) -> str:
     return "Zn-4Cys"
 
 
-def generate_html(figures_dir: Path, output_path: Path):
+def generate_html(figures_dir: Path, output_path: Path, *, system_label: str | None = None) -> Path | None:
     """Generate self-contained HTML with embedded images."""
     
     # Get all PNG files
@@ -75,7 +69,8 @@ def generate_html(figures_dir: Path, output_path: Path):
         print(f"  - {png.name}")
     
     grid_columns = _detect_grid_columns(png_files)
-    system_label = _detect_system_label(figures_dir, png_files)
+    system_label = system_label or _detect_system_label(figures_dir, png_files)
+    output_path = output_path.with_name(f"combined_figures_grid_{system_label}.html")
 
     # Generate HTML header
     html_parts = ['''<!DOCTYPE html>
@@ -120,13 +115,6 @@ def generate_html(figures_dir: Path, output_path: Path):
         }
         .figure-item img:hover {
             transform: scale(1.02);
-        }
-        .figure-caption {
-            margin-top: 10px;
-            font-size: 14px;
-            color: #666;
-            text-align: center;
-            font-weight: 500;
         }
         /* Modal for full-size viewing */
         .modal {
@@ -173,7 +161,6 @@ def generate_html(figures_dir: Path, output_path: Path):
         
         html_parts.append(f'''        <div class="figure-item">
             <img src="data:image/png;base64,{base64_data}" alt="{caption}" onclick="openModal(this.src)">
-            <div class="figure-caption">{caption}</div>
         </div>
         
 ''')
@@ -217,6 +204,17 @@ def generate_html(figures_dir: Path, output_path: Path):
     print(f"  File size: {file_size_mb:.2f} MB")
     print(f"  Images embedded: {len(png_files)}")
     print(f"\nYou can now share this single HTML file with collaborators!")
+    return output_path
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Generate a self-contained HTML for Figures PNGs.")
+    parser.add_argument(
+        "--system-label",
+        dest="system_label",
+        help="Override system label used in title and output filename.",
+    )
+    return parser.parse_args()
 
 
 if __name__ == '__main__':
@@ -227,4 +225,5 @@ if __name__ == '__main__':
     output_path = figures_dir / 'combined_figures_grid.html'
     
     # Generate the HTML
-    generate_html(figures_dir, output_path)
+    args = _parse_args()
+    generate_html(figures_dir, output_path, system_label=args.system_label)

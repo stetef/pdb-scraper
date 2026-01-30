@@ -50,6 +50,7 @@ class ProcessingConfig(BaseModel):
         return Path(v)
 
 class OutputConfig(BaseModel):
+    base_output_dir: Optional[Path] = None
     results_database: Path = Path("./results/results.csv")
     checkpoint_file: Path = Path("./results/checkpoint.db")
     log_file: Path = Path("./results/pipeline.log")
@@ -59,7 +60,7 @@ class OutputConfig(BaseModel):
     output_dir: Path = Path("./results")
     altloc_report_file: Optional[Path] = None
 
-    @field_validator("results_database", "checkpoint_file", "log_file", "matched_structures_dir", "kept_structures_dir", "output_dir", "altloc_report_file", mode="before")
+    @field_validator("base_output_dir", "results_database", "checkpoint_file", "log_file", "matched_structures_dir", "kept_structures_dir", "output_dir", "altloc_report_file", mode="before")
     @classmethod
     def to_path(cls, v: Any) -> Optional[Path]:
         if v is None: return None
@@ -264,7 +265,37 @@ def load_config(config_path: str) -> PipelineConfig:
         
     with open(config_path, 'r') as f:
         config_data = yaml.safe_load(f)
+
+    config_data = apply_base_output_dir_defaults(config_data)
     return PipelineConfig(**config_data)
+
+
+def apply_base_output_dir_defaults(config_data: Dict[str, Any]) -> Dict[str, Any]:
+    """If base_output_dir is set, fill default output paths derived from it."""
+    if not isinstance(config_data, dict):
+        return config_data
+
+    output_section = config_data.get("output")
+    base_dir = output_section.get("base_output_dir") if isinstance(output_section, dict) else None
+    if not base_dir:
+        return config_data
+
+    base = Path(base_dir)
+
+    processing = config_data.setdefault("processing", {})
+    if isinstance(processing, dict):
+        processing.setdefault("temp_directory", str(base / "PDB-downloads"))
+
+    output = config_data.setdefault("output", {})
+    if isinstance(output, dict):
+        output.setdefault("results_database", str(base / "results" / "summary.db"))
+        output.setdefault("checkpoint_file", str(base / "results" / "checkpoint.db"))
+        output.setdefault("log_file", str(base / "pipeline.log"))
+        output.setdefault("matched_structures_dir", str(base / "results" / "validated_structures"))
+        output.setdefault("kept_structures_dir", str(base / "results" / "kept_structures"))
+        output.setdefault("output_dir", str(base / "output"))
+
+    return config_data
 
 def print_config_summary(config: PipelineConfig) -> None:
     """Log configuration summary to logger."""

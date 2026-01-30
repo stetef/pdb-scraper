@@ -17,12 +17,39 @@ from typing import Callable, Dict, List, Tuple
 
 
 PALETTE = [
-    "#2A9D8F", "#E9C46A",
-    "#F4A261", "#B7410E",
+    "#2A7DBF", "#E9C46A",
+    "#89B397", "#B7410E",
     "#3A3D42", "#8FA998",
     "#457B9D", "#4A7C59",
     "#F4978E", "#6D597A",
 ]
+
+
+def _apply_hist_rcparams(plt) -> None:
+    plt.rcParams.update(
+        {
+            "font.family": "serif",
+            "axes.labelsize": 18,
+            "axes.titlesize": 22,
+            "axes.linewidth": 2,
+            "legend.fontsize": 18,
+            "legend.frameon": True,
+            "legend.framealpha": 0.9,
+            "legend.edgecolor": "white",
+            "legend.fancybox": False,
+            "legend.shadow": False,
+            "xtick.labelsize": 15,
+            "ytick.labelsize": 15,
+            "xtick.major.size": 8,
+            "ytick.major.size": 8,
+            "xtick.major.width": 2,
+            "ytick.major.width": 2,
+            "xtick.minor.size": 4,
+            "ytick.minor.size": 4,
+            "xtick.minor.width": 1.5,
+            "ytick.minor.width": 1.5,
+        }
+    )
 
 
 @dataclass(frozen=True)
@@ -47,7 +74,6 @@ class MetricSpec:
     key: str
     compute: Callable[[List[XyzAtom]], List[float]]
     expected_per_file: int
-    summary_label: str
     title: str
     xlabel: str
     out_png_name: str
@@ -79,7 +105,7 @@ def _print_metric_summary(spec: MetricSpec, acc: MetricAccum, *, total_files: in
     unit = spec.unit
     unit_suffix = unit if unit in ("°", "%") else f" {unit}" if unit else ""
     print(
-        f"{spec.summary_label}: "
+        f"{spec.title}: "
         f"{len(acc.values)} values from {total_files} file(s) "
         f"(min={float(arr.min()):.3f}{unit_suffix}, max={float(arr.max()):.3f}{unit_suffix}, mean={mean:.3f}{unit_suffix})"
     )
@@ -105,14 +131,31 @@ def _print_values_summary(label: str, values: List[float], *, unit: str) -> None
 
 def _format_reference_label(values: List[float], *, unit: str) -> str:
     if not values:
-        return "ORCA Reference\n0 values"
+        return "Reference\n0 values"
     arr = np.asarray(values, dtype=float)
     mean = float(arr.mean())
     unit_suffix = unit if unit in ("°", "%") else f" {unit}" if unit else ""
+    if unit == "°":
+        mean_str = f"{mean:.1f}"
+    elif unit == "Å":
+        mean_str = f"{mean:.2f}"
+    else:
+        mean_str = f"{mean:.3f}"
     return (
-        "ORCA Reference\n"
-        f"{len(values)} values (mean={mean:.3f}{unit_suffix})"
+        "Reference "
+        f"{len(values)} values (mean={mean_str}{unit_suffix})"
     )
+
+
+def _format_reference_label_mean_only(values: List[float], *, unit: str) -> str:
+    if not values:
+        return "Reference 0 values"
+    arr = np.asarray(values, dtype=float)
+    mean = float(arr.mean())
+    if unit == "Å":
+        return f"Reference {mean:.2f} A"
+    unit_suffix = unit if unit in ("°", "%") else f" {unit}" if unit else ""
+    return f"Reference {mean:.2f}{unit_suffix}"
 
 
 def _parse_meta_comment(comment: str) -> Dict[str, str]:
@@ -319,24 +362,69 @@ def _select_his_coord_residues(
 
     candidates: List[Tuple[float, str, Dict[str, XyzAtom]]] = []
     for atom_map in by_residue.values():
-        best = None
-        best_d2 = None
-        best_name = None
         for name in ("ND1", "NE2"):
             a = atom_map.get(name)
             if a is None:
                 continue
-            d2 = float(a.x * a.x + a.y * a.y + a.z * a.z)
-            if best_d2 is None or d2 < best_d2:
-                best_d2 = d2
-                best = a
-                best_name = name
-        if best is None or best_d2 is None or best_name is None:
-            continue
-        candidates.append((best_d2, best_name, atom_map))
+            if a.meta.get("COORD") == "1":
+                d2 = float(a.x * a.x + a.y * a.y + a.z * a.z)
+                candidates.append((d2, name, atom_map))
+                break
+        else:
+            best = None
+            best_d2 = None
+            best_name = None
+            for name in ("ND1", "NE2"):
+                a = atom_map.get(name)
+                if a is None:
+                    continue
+                d2 = float(a.x * a.x + a.y * a.y + a.z * a.z)
+                if best_d2 is None or d2 < best_d2:
+                    best_d2 = d2
+                    best = a
+                    best_name = name
+            if best is None or best_d2 is None or best_name is None:
+                continue
+            candidates.append((best_d2, best_name, atom_map))
 
     candidates.sort(key=lambda t: t[0])
     return [(name, atom_map) for _, name, atom_map in candidates[:max_residues]]
+
+
+def _select_his_coord_residue_keys(
+    atoms: List[XyzAtom],
+    *,
+    max_residues: int = 4,
+) -> List[Tuple[Tuple[str, str], str]]:
+    """Return (CHAIN, RESSEQ) and coordinating atom name for nearest HIS residues."""
+    by_residue = _his_atoms_by_residue(atoms, required_atoms={"ND1", "NE2"})
+    candidates: List[Tuple[float, Tuple[str, str], str]] = []
+    for key, atom_map in by_residue.items():
+        for name in ("ND1", "NE2"):
+            a = atom_map.get(name)
+            if a is None:
+                continue
+            if a.meta.get("COORD") == "1":
+                d2 = float(a.x * a.x + a.y * a.y + a.z * a.z)
+                candidates.append((d2, key, name))
+                break
+        else:
+            best_d2 = None
+            best_name = None
+            for name in ("ND1", "NE2"):
+                a = atom_map.get(name)
+                if a is None:
+                    continue
+                d2 = float(a.x * a.x + a.y * a.y + a.z * a.z)
+                if best_d2 is None or d2 < best_d2:
+                    best_d2 = d2
+                    best_name = name
+            if best_d2 is None or best_name is None:
+                continue
+            candidates.append((best_d2, key, best_name))
+
+    candidates.sort(key=lambda t: t[0])
+    return [(key, name) for _, key, name in candidates[:max_residues]]
 
 
 def his_coord_distances_by_atom(
@@ -417,13 +505,13 @@ def his_coord_cg_ca_angles_by_atom(
     max_residues: int = 4,
 ) -> Dict[str, List[float]]:
     """Return angle ND/NE–CG–CB grouped by coordinating atom."""
-    selected = _select_his_coord_residues(
-        atoms,
-        max_residues=max_residues,
-        required_atoms={"ND1", "NE2", "CG", "CB"},
-    )
+    selected = _select_his_coord_residue_keys(atoms, max_residues=max_residues)
+    by_residue = _his_atoms_by_residue(atoms, required_atoms={"ND1", "NE2", "CG", "CB"})
     by_atom: Dict[str, List[float]] = {"ND1": [], "NE2": []}
-    for coord_name, atom_map in selected:
+    for key, coord_name in selected:
+        atom_map = by_residue.get(key)
+        if atom_map is None:
+            continue
         coord = atom_map.get(coord_name)
         cg = atom_map.get("CG")
         cb = atom_map.get("CB")
@@ -510,22 +598,27 @@ def his_mean_coord_distance(atoms: List[XyzAtom], *, max_residues: int = 4) -> f
     return float(np.mean(dists))
 
 
+def ca_to_ca_distances_from_seed(atoms: List[XyzAtom]) -> List[float]:
+    """Return distances from the first CA atom to all other CA atoms in the file."""
+    ca_atoms = [a for a in atoms if a.meta.get("ATOM") == "CA"]
+    if len(ca_atoms) < 2:
+        return []
+    seed = ca_atoms[0]
+    seed_vec = np.asarray((seed.x, seed.y, seed.z), dtype=float)
+    dists: List[float] = []
+    for a in ca_atoms[1:]:
+        vec = np.asarray((a.x, a.y, a.z), dtype=float)
+        dists.append(float(np.linalg.norm(vec - seed_vec)))
+    return dists
+
+
 def his_coordination_atom_counts(
     atoms: List[XyzAtom],
     *,
     max_atoms: int = 4,
 ) -> Tuple[int, int]:
-    """Count ND1 vs NE2 among the closest coordinating atoms (CYS/HIS) per file."""
+    """Count ND1 vs NE2 among the closest coordinating HIS atoms per file."""
     candidates: List[Tuple[float, str]] = []
-
-    # CYS candidates: SG atoms (one per residue)
-    cys_by_res = _cys_atoms_by_residue(atoms, required_atoms={"SG"})
-    for atom_map in cys_by_res.values():
-        sg = atom_map.get("SG")
-        if sg is None:
-            continue
-        d2 = float(sg.x * sg.x + sg.y * sg.y + sg.z * sg.z)
-        candidates.append((d2, "CYS"))
 
     # HIS candidates: nearest ND1/NE2 per residue
     his_selected = _select_his_coord_residues(atoms, max_residues=999)
@@ -997,6 +1090,8 @@ def plot_bond_length_histogram(
         )
         return
 
+    _apply_hist_rcparams(plt)
+
     if not distances:
         print("No bond distances collected; skipping histogram plot.")
         return
@@ -1132,8 +1227,23 @@ def plot_bond_length_histogram(
     plt.title(title)
     plt.xlabel(xlabel)
     plt.ylabel("Count")
+    if unit == "°":
+        from matplotlib.ticker import FormatStrFormatter
+
+        ax.xaxis.set_major_formatter(FormatStrFormatter("%.1f"))
     if reference_values:
-        ax.legend(loc="best")
+        handles, labels = ax.get_legend_handles_labels()
+        if handles:
+            ax.legend(
+                handles,
+                labels,
+                loc="upper center",
+                bbox_to_anchor=(0.5, -0.18),
+                ncol=len(labels),
+                columnspacing=1.1,
+                handletextpad=0.2,
+                frameon=False,
+            )
 
     plt.tight_layout()
 
@@ -1163,6 +1273,11 @@ def plot_overlay_histogram(
     bins: int | str = "auto",
     unit: str = "Å",
     x_range: tuple[float, float] | None = None,
+    reference_series: List[List[float]] | None = None,
+    bar_alpha: float = 0.65,
+    include_series_mean: bool = True,
+    include_reference_mean: bool = True,
+    reference_label_suffix: str = " reference",
 ) -> None:
     """Plot multiple distributions on a single histogram (no hover UI)."""
     try:
@@ -1173,6 +1288,8 @@ def plot_overlay_histogram(
             f"Import error: {e}"
         )
         return
+
+    _apply_hist_rcparams(plt)
 
     if not any(series):
         print("No values collected; skipping overlay histogram plot.")
@@ -1193,17 +1310,68 @@ def plot_overlay_histogram(
             raise SystemExit("overlay histogram x_range must satisfy xmin < xmax")
 
     all_values = [v for s in series for v in s]
-    bin_edges = np.histogram_bin_edges(all_values, bins=bins)
-    for data, label, color in zip(series, labels, colors):
-        ax.hist(
+    if unit == "count":
+        if x_range is not None:
+            bin_edges = np.arange(xmin, xmax + 1.0, 1.0)
+        else:
+            max_val = max(all_values) if all_values else 0
+            bin_edges = np.arange(-0.5, max_val + 1.5, 1.0)
+    else:
+        bin_edges = np.histogram_bin_edges(all_values, bins=bins)
+    def _format_mean_label(label: str, values: List[float]) -> str:
+        if not values:
+            return label
+        if unit not in ("°", "Å"):
+            return label
+        mean = float(np.asarray(values, dtype=float).mean())
+        if unit == "°":
+            mean_str = f"{mean:.1f}"
+        else:
+            mean_str = f"{mean:.2f}"
+        unit_suffix = unit if unit in ("°", "%") else f" {unit}" if unit else ""
+        return f"{label} (mean={mean_str}{unit_suffix})"
+
+    labeled_series = [
+        (data, _format_mean_label(label, data) if include_series_mean else label, color)
+        for data, label, color in zip(series, labels, colors)
+    ]
+    items = list(labeled_series)
+    # Draw non-yellow first, then yellow on top to avoid washout.
+    items.sort(key=lambda item: item[2] == PALETTE[1])
+    for data, label, color in items:
+        zorder = 6 if color == PALETTE[1] else 5
+        _, _, patches = ax.hist(
             data,
             bins=bin_edges,
             label=label,
             color=color,
-            alpha=0.65,
+            alpha=bar_alpha,
             edgecolor="black",
-            zorder=5,
+            zorder=zorder,
         )
+        if color == PALETTE[0]:
+            for patch in patches:
+                patch.set_hatch("//")
+                patch.set_edgecolor(PALETTE[4])
+        if color == PALETTE[1]:
+            for patch in patches:
+                patch.set_edgecolor(PALETTE[4])
+
+    if reference_series is not None:
+        for ref_values, label, color in zip(reference_series, labels, colors):
+            if not ref_values:
+                continue
+            ref_label = _format_mean_label(label, ref_values) if include_reference_mean else label
+            for i, v in enumerate(ref_values):
+                ax.axvline(
+                    v,
+                    color=color,
+                    linestyle="--",
+                    linewidth=1.5,
+                    alpha=0.9,
+                    zorder=6,
+                    label=f"{ref_label}{reference_label_suffix}" if i == 0 else None,
+                )
 
     if x_range is not None:
         ax.set_xlim(xmin, xmax)
@@ -1212,18 +1380,39 @@ def plot_overlay_histogram(
     bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2.0
     if x_range is not None:
         bin_centers = bin_centers[(bin_centers >= xmin) & (bin_centers <= xmax)]
-    tick_centers = bin_centers[::3]
+    if unit == "count":
+        if x_range is not None:
+            tick_centers = np.arange(int(np.ceil(xmin + 0.5)), int(np.floor(xmax - 0.5)) + 1)
+        else:
+            tick_centers = np.arange(int(min(all_values or [0])), int(max(all_values or [0])) + 1)
+    else:
+        tick_centers = bin_centers[::3]
     ax.set_xticks(tick_centers)
     if unit == "Å":
         from matplotlib.ticker import FormatStrFormatter
 
         ax.xaxis.set_major_formatter(FormatStrFormatter("%.3f"))
+    elif unit == "°":
+        from matplotlib.ticker import FormatStrFormatter
+
+        ax.xaxis.set_major_formatter(FormatStrFormatter("%.1f"))
 
     plt.title(title)
     plt.xlabel(xlabel)
     plt.ylabel("Count")
     ax.set_xlabel(xlabel)
-    ax.legend(loc="best")
+    handles, labels = ax.get_legend_handles_labels()
+    if handles:
+        ax.legend(
+            handles,
+            labels,
+            loc="upper center",
+            bbox_to_anchor=(0.5, -0.18),
+            ncol=len(labels),
+            columnspacing=1.1,
+            handletextpad=0.2,
+            frameon=False,
+        )
     plt.tight_layout()
 
     out_path = Path(out_png_name)
@@ -1260,6 +1449,8 @@ def plot_coord_atom_count_histogram(
         )
         return
 
+    _apply_hist_rcparams(plt)
+
     if not nd1_counts and not ne2_counts:
         print("No coordination counts collected; skipping count histogram plot.")
         return
@@ -1284,7 +1475,18 @@ def plot_coord_atom_count_histogram(
     plt.title(title)
     plt.xlabel(xlabel)
     plt.ylabel("Count (files)")
-    ax.legend(loc="best")
+    handles, labels = ax.get_legend_handles_labels()
+    if handles:
+        ax.legend(
+            handles,
+            labels,
+            loc="upper center",
+            bbox_to_anchor=(0.5, -0.18),
+            ncol=len(labels),
+            columnspacing=1.1,
+            handletextpad=0.2,
+            frameon=False,
+        )
     plt.tight_layout()
 
     out_path = Path(out_png_name)
@@ -1486,8 +1688,8 @@ def _infer_reference_atoms_and_labels(
             )
 
     # HIS inference.
-    def _pick_his_stem_from_coord(coord_idx: int) -> Tuple[int, int, int] | None:
-        """Return (cg_idx, cb_idx, ca_idx) for a coordinating N/C if possible.
+    def _pick_his_stem_from_coord(coord_idx: int) -> Tuple[int, int, int, int] | None:
+        """Return (cg_idx, cb_idx, ca_idx, coord_idx) for a coordinating N/C if possible.
 
         Uses ring order: CA-CB-CG-CD2-NE2-CE1-ND1-CG.
         CG should be bonded to CB (carbon with no N neighbors) and be in the ring.
@@ -1551,18 +1753,89 @@ def _infer_reference_atoms_and_labels(
         if not ca_candidates:
             return None
         ca_idx = max(ca_candidates, key=_dist_to_zn_idx)
-        return (cg_idx, cb_idx, ca_idx)
+        return (cg_idx, cb_idx, ca_idx, coord_idx)
 
-        return None
+    def _infer_his_ring_from_cg(cg_idx: int, cb_idx: int) -> Dict[str, int]:
+        """Infer imidazole ring atom indices using CG as anchor.
+
+        Ring order: CG-CD2-NE2-CE1-ND1-CG. Returns any atoms found.
+        """
+        ring: Dict[str, int] = {}
+        ring_neighbors = [
+            j
+            for j in _neighbors(cg_idx)
+            if _el(atoms[j]) in {"C", "N"} and j != cb_idx
+        ]
+
+        nd1_idx = None
+        cd2_idx = None
+        for j in ring_neighbors:
+            if _el(atoms[j]) == "N":
+                nd1_idx = j
+            elif _el(atoms[j]) == "C":
+                cd2_idx = j
+
+        if cd2_idx is None:
+            for j in ring_neighbors:
+                if _el(atoms[j]) != "C":
+                    continue
+                if any(_el(atoms[k]) == "N" and k != cg_idx for k in _neighbors(j)):
+                    cd2_idx = j
+                    break
+
+        ne2_idx = None
+        ce1_idx = None
+        if cd2_idx is not None:
+            n_neighbors = [k for k in _neighbors(cd2_idx) if _el(atoms[k]) == "N" and k != cg_idx]
+            if n_neighbors:
+                ne2_idx = n_neighbors[0]
+                c_neighbors = [
+                    k for k in _neighbors(ne2_idx) if _el(atoms[k]) == "C" and k != cd2_idx
+                ]
+                if c_neighbors:
+                    ce1_idx = c_neighbors[0]
+                    n_from_ce1 = [
+                        k for k in _neighbors(ce1_idx) if _el(atoms[k]) == "N" and k != ne2_idx
+                    ]
+                    if n_from_ce1:
+                        nd1_idx = n_from_ce1[0]
+
+        if nd1_idx is not None and ne2_idx is None:
+            ce1_candidates = [
+                k for k in _neighbors(nd1_idx) if _el(atoms[k]) == "C" and k != cg_idx
+            ]
+            if ce1_candidates:
+                ce1_idx = ce1_candidates[0]
+                ne2_candidates = [
+                    k for k in _neighbors(ce1_idx) if _el(atoms[k]) == "N" and k != nd1_idx
+                ]
+                if ne2_candidates:
+                    ne2_idx = ne2_candidates[0]
+                    if cd2_idx is None:
+                        cd2_candidates = [
+                            k for k in _neighbors(ne2_idx) if _el(atoms[k]) == "C" and k != ce1_idx
+                        ]
+                        if cd2_candidates:
+                            cd2_idx = cd2_candidates[0]
+
+        if cd2_idx is not None:
+            ring["CD2"] = cd2_idx
+        if ne2_idx is not None:
+            ring["NE2"] = ne2_idx
+        if ce1_idx is not None:
+            ring["CE1"] = ce1_idx
+        if nd1_idx is not None:
+            ring["ND1"] = nd1_idx
+        return ring
 
     for idx in closest:
         if _el(atoms[idx]) not in {"N", "C"}:
             continue
         coord_idx = idx
-        coord_el = _el(atoms[coord_idx])
 
         stem = _pick_his_stem_from_coord(coord_idx)
         if stem is None:
+            coord_el = _el(atoms[coord_idx])
             print("Warning: could not fully infer HIS sidechain for coordinating atom in reference XYZ.")
             # Still include coordinating atom distance if it is N.
             if coord_el == "N":
@@ -1576,30 +1849,66 @@ def _infer_reference_atoms_and_labels(
                         x=a.x - zn.x,
                         y=a.y - zn.y,
                         z=a.z - zn.z,
-                        meta={"RES": "HIS", "ATOM": "ND1", "RESSEQ": resseq, "CHAIN": "A"},
+                        meta={
+                            "RES": "HIS",
+                            "ATOM": "ND1",
+                            "RESSEQ": resseq,
+                            "CHAIN": "A",
+                            "COORD": "1",
+                        },
                         raw_comment="",
                     )
                 )
             continue
 
-        cg_idx, cb_idx, ca_idx = stem
+        cg_idx, cb_idx, ca_idx, coord_idx = stem
         his_count += 1
         resseq = str(100 + his_count)
 
-        # Coordinating atom label: ND1 by default.
+        ring = _infer_his_ring_from_cg(cg_idx, cb_idx)
+        coord_name = "ND1"
+        if coord_idx == ring.get("NE2"):
+            coord_name = "NE2"
+        elif coord_idx == ring.get("ND1"):
+            coord_name = "ND1"
+
+        # Coordinating atom label: ND1 by default (or inferred NE2).
         a_coord = atoms[coord_idx]
-        labels_by_idx.setdefault(coord_idx, "HIS ND1")
+        labels_by_idx.setdefault(coord_idx, f"HIS {coord_name}")
         inferred_atoms.append(
             XyzAtom(
                 element=a_coord.element,
                 x=a_coord.x - zn.x,
                 y=a_coord.y - zn.y,
                 z=a_coord.z - zn.z,
-                meta={"RES": "HIS", "ATOM": "ND1", "RESSEQ": resseq, "CHAIN": "A"},
+                meta={
+                    "RES": "HIS",
+                    "ATOM": coord_name,
+                    "RESSEQ": resseq,
+                    "CHAIN": "A",
+                    "COORD": "1",
+                },
                 raw_comment="",
             )
         )
         for atom_idx, atom_name in ((cg_idx, "CG"), (cb_idx, "CB"), (ca_idx, "CA")):
+            a = atoms[atom_idx]
+            labels_by_idx.setdefault(atom_idx, f"HIS {atom_name}")
+            inferred_atoms.append(
+                XyzAtom(
+                    element=a.element,
+                    x=a.x - zn.x,
+                    y=a.y - zn.y,
+                    z=a.z - zn.z,
+                    meta={"RES": "HIS", "ATOM": atom_name, "RESSEQ": resseq, "CHAIN": "A"},
+                    raw_comment="",
+                )
+            )
+
+        for atom_name in ("CD2", "NE2", "CE1", "ND1"):
+            atom_idx = ring.get(atom_name)
+            if atom_idx is None:
+                continue
             a = atoms[atom_idx]
             labels_by_idx.setdefault(atom_idx, f"HIS {atom_name}")
             inferred_atoms.append(
@@ -2240,9 +2549,8 @@ def _build_metric_specs() -> List[MetricSpec]:
             key="sg_center",
             compute=lambda atoms: sg_bond_lengths_to_center(atoms, max_sgs=4),
             expected_per_file=4,
-            summary_label="SG-to-center distances collected for histogram",
-            title="CYS Histogram: Zn → S bond lengths",
-            xlabel="Distance from Zn to CYS SG (Å)",
+            title="CYS Zn → S bond lengths",
+            xlabel="Distance from Zn to Sγ (Å)",
             out_png_name="Figures/cys_zn_sg_distances_histogram.png",
             color=PALETTE[3],
             bins=20,
@@ -2252,9 +2560,8 @@ def _build_metric_specs() -> List[MetricSpec]:
             key="cb_center",
             compute=lambda atoms: cb_bond_lengths_to_center_selected_by_sg(atoms, max_residues=4),
             expected_per_file=4,
-            summary_label="CB-to-center distances collected for histogram",
-            title="CYS Histogram: Zn → Cβ distances",
-            xlabel="Distance from Zn to CYS CB (Å)",
+            title="CYS Zn → Cβ distances",
+            xlabel="Distance from Zn to Cβ (Å)",
             out_png_name="Figures/cys_zn_cb_distances_histogram.png",
             color=PALETTE[3],
             bins=15,
@@ -2264,9 +2571,8 @@ def _build_metric_specs() -> List[MetricSpec]:
             key="ca_center",
             compute=lambda atoms: ca_bond_lengths_to_center_selected_by_sg(atoms, max_residues=4),
             expected_per_file=4,
-            summary_label="CA-to-center distances collected for histogram",
-            title="CYS Histogram: Zn → Cα distances",
-            xlabel="Distance from Zn to CYS CA (Å)",
+            title="CYS Zn → Cα distances",
+            xlabel="Distance from Zn to Cα (Å)",
             out_png_name="Figures/cys_zn_ca_distances_histogram.png",
             color=PALETTE[3],
             bins=15,
@@ -2276,9 +2582,8 @@ def _build_metric_specs() -> List[MetricSpec]:
             key="sg_ca",
             compute=lambda atoms: sg_ca_distances_selected_by_sg(atoms, max_residues=4),
             expected_per_file=4,
-            summary_label="SG–CA distances collected for histogram",
-            title="CYS Histogram: S → Cα distances",
-            xlabel="Distance from CYS SG to CYS CA (Å)",
+            title="CYS S → Cα distances",
+            xlabel="Distance from Sγ to Cα (Å)",
             out_png_name="Figures/cys_sg_ca_distances_histogram.png",
             color=PALETTE[3],
             bins=15,
@@ -2288,9 +2593,8 @@ def _build_metric_specs() -> List[MetricSpec]:
             key="cb_ca",
             compute=lambda atoms: cb_ca_distances_selected_by_sg(atoms, max_residues=4),
             expected_per_file=4,
-            summary_label="CB–CA distances collected for histogram",
-            title="CYS Histogram: Cβ → Cα distances",
-            xlabel="Distance from CYS CB to CYS CA (Å)",
+            title="CYS Cβ → Cα distances",
+            xlabel="Distance from Cβ to Cα (Å)",
             out_png_name="Figures/cys_cb_ca_distances_histogram.png",
             color=PALETTE[3],
             bins=15,
@@ -2300,9 +2604,8 @@ def _build_metric_specs() -> List[MetricSpec]:
             key="sg_cb",
             compute=lambda atoms: sg_cb_distances_selected_by_sg(atoms, max_residues=4),
             expected_per_file=4,
-            summary_label="SG–CB distances collected for histogram",
-            title="CYS Histogram: S → Cβ distances",
-            xlabel="Distance from CYS SG to CYS CB (Å)",
+            title="CYS S → Cβ distances",
+            xlabel="Distance from Sγ to Cβ (Å)",
             out_png_name="Figures/cys_sg_cb_distances_histogram.png",
             color=PALETTE[3],
             bins=15,
@@ -2312,9 +2615,8 @@ def _build_metric_specs() -> List[MetricSpec]:
             key="sgcb_angle",
             compute=lambda atoms: sg_cb_angle_vs_radial_selected_by_sg(atoms, max_residues=4),
             expected_per_file=4,
-            summary_label="Angles collected for histogram (angle between origin→SG and SG→CB)",
-            title="CYS Histogram: Zn→S→Cβ angle",
-            xlabel="Angle between (Zn→SG) and (SG→CB) (°)",
+            title="CYS Zn→S→Cβ angle",
+            xlabel="Angle Zn→Sγ→Cβ (°)",
             out_png_name="Figures/cys_zn_sg_cb_angle_histogram.png",
             color=PALETTE[3],
             bins=18,
@@ -2324,9 +2626,8 @@ def _build_metric_specs() -> List[MetricSpec]:
             key="sg_cb_ca_angle",
             compute=lambda atoms: sg_cb_ca_angle_selected_by_sg(atoms, max_residues=4),
             expected_per_file=4,
-            summary_label="Angles collected for histogram (angle between SG→CB and CB→CA)",
-            title="CYS Histogram: S→Cβ→Cα angle",
-            xlabel="Angle between (SG→CB) and (CB→CA) (°)",
+            title="CYS S→Cβ→Cα angle",
+            xlabel="Angle Sγ→Cβ→Cα (°)",
             out_png_name="Figures/cys_sg_cb_ca_angle_histogram.png",
             color=PALETTE[3],
             bins=18,
@@ -2336,9 +2637,8 @@ def _build_metric_specs() -> List[MetricSpec]:
             key="zn_sg_cb_ca_dihedral",
             compute=lambda atoms: dihedral_origin_sg_cb_ca_selected_by_sg(atoms, max_residues=4),
             expected_per_file=4,
-            summary_label="Dihedral angles collected for histogram (origin→SG→CB→CA)",
-            title="CYS Histogram: Zn→S→Cβ→Cα dihedral",
-            xlabel="Dihedral angle (Zn→SG→CB→CA) (°)",
+            title="CYS Zn→S→Cβ→Cα dihedral",
+            xlabel="Dihedral angle (Zn→SG→Cβ→Cα) (°)",
             out_png_name="Figures/cys_zn_sg_cb_ca_dihedral_histogram.png",
             color=PALETTE[3],
             bins=25,
@@ -2350,9 +2650,8 @@ def _build_metric_specs() -> List[MetricSpec]:
             if cys_mean_coord_distance(atoms, max_sgs=4) is not None
             else [],
             expected_per_file=1,
-            summary_label="CYS mean SG-to-center distances collected for histogram",
-            title="CYS Histogram: mean Zn → S distance per structure",
-            xlabel="Mean distance from Zn to CYS SG (Å)",
+            title="CYS Zn → S average distance",
+            xlabel="Mean distance from Zn to Sγ (Å)",
             out_png_name="Figures/cys_zn_sg_mean_distance_histogram.png",
             color=PALETTE[3],
             bins=12,
@@ -2364,12 +2663,22 @@ def _build_metric_specs() -> List[MetricSpec]:
             if his_mean_coord_distance(atoms, max_residues=4) is not None
             else [],
             expected_per_file=1,
-            summary_label="HIS mean Zn→ND1/NE2 distances collected for histogram",
-            title="HIS Histogram: mean Zn → ND1/NE2 distance per structure",
-            xlabel="Mean distance from Zn to HIS ND1/NE2 (Å)",
+            title="HIS Zn → Nδ/Nε average distance",
+            xlabel="Mean distance from Zn to Nδ/Nε (Å)",
             out_png_name="Figures/his_zn_coord_mean_distance_histogram.png",
             color=PALETTE[2],
             bins=17,
+            unit="Å",
+        ),
+        MetricSpec(
+            key="ca_ca_seed",
+            compute=ca_to_ca_distances_from_seed,
+            expected_per_file=1,
+            title="Cα → Cα distances",
+            xlabel="Distance between Cα atoms (Å)",
+            out_png_name="Figures/ca_ca_seed_distances_histogram.png",
+            color="#D3D3D3",
+            bins=20,
             unit="Å",
         ),
     ]
@@ -2387,7 +2696,13 @@ def _generate_histograms(
         if not acc.values:
             continue
         ref_vals = reference_metrics.get(spec.key) if reference_metrics else None
-        label = _format_reference_label(ref_vals or [], unit=spec.unit) if reference_metrics else reference_label
+        if reference_metrics:
+            if spec.key in {"cys_sg_center_mean", "his_coord_center_mean"}:
+                label = _format_reference_label_mean_only(ref_vals or [], unit=spec.unit)
+            else:
+                label = _format_reference_label(ref_vals or [], unit=spec.unit)
+        else:
+            label = reference_label
         plot_bond_length_histogram(
             acc.values,
             acc.sources,
@@ -2468,6 +2783,24 @@ def run_check_mode(
 
     reference_metrics: Dict[str, List[float]] | None = None
     reference_label: str | None = None
+    ref_his_coord_nd1_dists: List[float] = []
+    ref_his_coord_ne2_dists: List[float] = []
+    ref_his_ca_nd1_dists: List[float] = []
+    ref_his_ca_ne2_dists: List[float] = []
+    ref_his_cb_nd1_dists: List[float] = []
+    ref_his_cb_ne2_dists: List[float] = []
+    ref_his_cg_nd1_dists: List[float] = []
+    ref_his_cg_ne2_dists: List[float] = []
+    ref_his_coord_nd1_angles: List[float] = []
+    ref_his_coord_ne2_angles: List[float] = []
+    ref_his_cg_cb_nd1_angles: List[float] = []
+    ref_his_cg_cb_ne2_angles: List[float] = []
+    ref_his_cg_cb_ca_nd1_angles: List[float] = []
+    ref_his_cg_cb_ca_ne2_angles: List[float] = []
+    ref_his_zn_cg_ca_nd1_dihedrals: List[float] = []
+    ref_his_zn_cg_ca_ne2_dihedrals: List[float] = []
+    ref_his_coord_nd1_counts: List[int] = []
+    ref_his_coord_ne2_counts: List[int] = []
     if reference_path is not None:
         print(f"Loading reference XYZ: {reference_path}")
         ref_atoms = parse_xyz_atoms(reference_path)
@@ -2475,10 +2808,12 @@ def run_check_mode(
             print(f"Warning: reference XYZ appears empty or unreadable: {reference_path}")
         if any(a.meta for a in ref_atoms):
             reference_metrics = {spec.key: spec.compute(ref_atoms) for spec in metric_specs}
+            ref_atoms_for_his = ref_atoms
         else:
             print("Reference XYZ has no metadata; using element-based nearest-4-to-Zn inference.")
             reference_metrics = _reference_metrics_from_elements(ref_atoms, metric_specs)
-        reference_label = "ORCA Reference"
+            ref_atoms_for_his, _ = _infer_reference_atoms_and_labels(ref_atoms)
+        reference_label = "Reference"
         plot_reference_xyz_py3dmol(reference_path, reference_path.with_suffix(".html"))
         print("Reference metrics:")
         for spec in metric_specs:
@@ -2487,6 +2822,43 @@ def run_check_mode(
                 reference_metrics.get(spec.key, []),
                 unit=spec.unit,
             )
+
+        if ref_atoms_for_his:
+            coord_by_atom = his_coord_distances_by_atom(ref_atoms_for_his, max_residues=4)
+            ref_his_coord_nd1_dists = coord_by_atom.get("ND1", [])
+            ref_his_coord_ne2_dists = coord_by_atom.get("NE2", [])
+
+            ca_by_atom = his_atom_distances_by_coord_atom(ref_atoms_for_his, "CA", max_residues=4)
+            ref_his_ca_nd1_dists = ca_by_atom.get("ND1", [])
+            ref_his_ca_ne2_dists = ca_by_atom.get("NE2", [])
+
+            cb_by_atom = his_atom_distances_by_coord_atom(ref_atoms_for_his, "CB", max_residues=4)
+            ref_his_cb_nd1_dists = cb_by_atom.get("ND1", [])
+            ref_his_cb_ne2_dists = cb_by_atom.get("NE2", [])
+
+            cg_by_atom = his_atom_distances_by_coord_atom(ref_atoms_for_his, "CG", max_residues=4)
+            ref_his_cg_nd1_dists = cg_by_atom.get("ND1", [])
+            ref_his_cg_ne2_dists = cg_by_atom.get("NE2", [])
+
+            angle_by_atom = his_coord_cg_angles_by_atom(ref_atoms_for_his, max_residues=4)
+            ref_his_coord_nd1_angles = angle_by_atom.get("ND1", [])
+            ref_his_coord_ne2_angles = angle_by_atom.get("NE2", [])
+
+            cg_cb_angles = his_coord_cg_ca_angles_by_atom(ref_atoms_for_his, max_residues=4)
+            ref_his_cg_cb_nd1_angles = cg_cb_angles.get("ND1", [])
+            ref_his_cg_cb_ne2_angles = cg_cb_angles.get("NE2", [])
+
+            cg_cb_ca_angles = his_cg_cb_ca_angles_by_atom(ref_atoms_for_his, max_residues=4)
+            ref_his_cg_cb_ca_nd1_angles = cg_cb_ca_angles.get("ND1", [])
+            ref_his_cg_cb_ca_ne2_angles = cg_cb_ca_angles.get("NE2", [])
+
+            dihedrals = his_coord_zn_cg_ca_dihedral_by_atom(ref_atoms_for_his, max_residues=4)
+            ref_his_zn_cg_ca_nd1_dihedrals = dihedrals.get("ND1", [])
+            ref_his_zn_cg_ca_ne2_dihedrals = dihedrals.get("NE2", [])
+
+            ref_nd1_count, ref_ne2_count = his_coordination_atom_counts(ref_atoms_for_his, max_atoms=4)
+            ref_his_coord_nd1_counts = [ref_nd1_count]
+            ref_his_coord_ne2_counts = [ref_ne2_count]
 
     for p in all_xyz:
         atoms = parse_xyz_atoms(p)
@@ -2534,9 +2906,10 @@ def run_check_mode(
         his_zn_cg_ca_nd1_dihedrals.extend(dihedral_by_atom.get("ND1", []))
         his_zn_cg_ca_ne2_dihedrals.extend(dihedral_by_atom.get("NE2", []))
 
-        nd1_count, ne2_count = his_coordination_atom_counts(atoms, max_atoms=4)
-        his_coord_nd1_counts.append(nd1_count)
-        his_coord_ne2_counts.append(ne2_count)
+        if his_count > 0:
+            nd1_count, ne2_count = his_coordination_atom_counts(atoms, max_atoms=4)
+            his_coord_nd1_counts.append(nd1_count)
+            his_coord_ne2_counts.append(ne2_count)
 
         n = count_cys_residues_with_ca_cb_sg(atoms)
         if n != 4:
@@ -2592,61 +2965,101 @@ def run_check_mode(
         )
         plot_overlay_histogram(
             [his_coord_ne2_dists, his_coord_nd1_dists],
-            ["NE2", "ND1"],
+            ["Nε", "Nδ"],
             [PALETTE[1], PALETTE[0]],
-            title="HIS Histogram: Zn → ND1/NE2 distances",
-            xlabel="Distance from Zn to HIS ND1/NE2 (Å)",
+            title="HIS Zn → Nδ/Nε distances",
+            xlabel="Distance from Zn to Nδ/Nε (Å)",
             out_png_name="Figures/his_zn_coord_distances_histogram.png",
-            bins=30,
+            bins=18,
             unit="Å",
+            bar_alpha=0.5,
+            include_series_mean=False,
+            include_reference_mean=False,
+            reference_label_suffix=" reference",
+            reference_series=
+            [ref_his_coord_ne2_dists, ref_his_coord_nd1_dists]
+            if ref_his_coord_ne2_dists or ref_his_coord_nd1_dists
+            else None,
         )
 
         plot_overlay_histogram(
             [his_coord_ne2_dists, his_coord_nd1_dists],
-            ["NE2", "ND1"],
+            ["Nε", "Nδ"],
             [PALETTE[1], PALETTE[0]],
-            title="HIS Histogram: Zn → ND1/NE2 distances (2.0–2.25 Å)",
-            xlabel="Distance from Zn to HIS ND1/NE2 (Å)",
+            title="HIS Zn → Nδ/Nε distances (zoomed)",
+            xlabel="Distance from Zn to Nδ/Nε (Å)",
             out_png_name="Figures/his_zn_coord_distances_histogram_2.0_2.25.png",
             bins=75,
             unit="Å",
             x_range=(2.0, 2.25),
+            bar_alpha=0.5,
+            include_series_mean=False,
+            include_reference_mean=False,
+            reference_label_suffix=" reference",
+            reference_series=
+            [ref_his_coord_ne2_dists, ref_his_coord_nd1_dists]
+            if ref_his_coord_ne2_dists or ref_his_coord_nd1_dists
+            else None,
         )
 
     if his_ca_nd1_dists or his_ca_ne2_dists:
         plot_overlay_histogram(
             [his_ca_ne2_dists, his_ca_nd1_dists],
-            ["NE2", "ND1"],
+            ["Nε", "Nδ"],
             [PALETTE[1], PALETTE[0]],
-            title="HIS Histogram: Zn → Cα distances (by coordinating atom)",
-            xlabel="Distance from Zn to HIS Cα (Å)",
+            title="HIS Zn → Cα distances",
+            xlabel="Distance from Zn to Cα (Å)",
             out_png_name="Figures/his_zn_ca_distances_histogram.png",
             bins=15,
             unit="Å",
+            bar_alpha=0.5,
+            include_series_mean=False,
+            include_reference_mean=False,
+            reference_label_suffix=" reference",
+            reference_series=
+            [ref_his_ca_ne2_dists, ref_his_ca_nd1_dists]
+            if ref_his_ca_ne2_dists or ref_his_ca_nd1_dists
+            else None,
         )
 
     if his_cb_nd1_dists or his_cb_ne2_dists:
         plot_overlay_histogram(
             [his_cb_ne2_dists, his_cb_nd1_dists],
-            ["NE2", "ND1"],
+            ["Nε", "Nδ"],
             [PALETTE[1], PALETTE[0]],
-            title="HIS Histogram: Zn → Cβ distances (by coordinating atom)",
-            xlabel="Distance from Zn to HIS Cβ (Å)",
+            title="HIS Zn → Cβ distances",
+            xlabel="Distance from Zn to Cβ (Å)",
             out_png_name="Figures/his_zn_cb_distances_histogram.png",
             bins=15,
             unit="Å",
+            bar_alpha=0.5,
+            include_series_mean=False,
+            include_reference_mean=False,
+            reference_label_suffix=" reference",
+            reference_series=
+            [ref_his_cb_ne2_dists, ref_his_cb_nd1_dists]
+            if ref_his_cb_ne2_dists or ref_his_cb_nd1_dists
+            else None,
         )
 
     if his_cg_nd1_dists or his_cg_ne2_dists:
         plot_overlay_histogram(
             [his_cg_ne2_dists, his_cg_nd1_dists],
-            ["NE2", "ND1"],
+            ["Nε", "Nδ"],
             [PALETTE[1], PALETTE[0]],
-            title="HIS Histogram: Zn → Cγ distances (by coordinating atom)",
-            xlabel="Distance from Zn to HIS Cγ (Å)",
+            title="HIS Zn → Cγ distances",
+            xlabel="Distance from Zn to Cγ (Å)",
             out_png_name="Figures/his_zn_cg_distances_histogram.png",
             bins=15,
             unit="Å",
+            bar_alpha=0.5,
+            include_series_mean=False,
+            include_reference_mean=False,
+            reference_label_suffix=" reference",
+            reference_series=
+            [ref_his_cg_ne2_dists, ref_his_cg_nd1_dists]
+            if ref_his_cg_ne2_dists or ref_his_cg_nd1_dists
+            else None,
         )
 
     if his_coord_nd1_angles or his_coord_ne2_angles:
@@ -2662,59 +3075,102 @@ def run_check_mode(
         )
         plot_overlay_histogram(
             [his_coord_ne2_angles, his_coord_nd1_angles],
-            ["NE2", "ND1"],
+            ["Nε", "Nδ"],
             [PALETTE[1], PALETTE[0]],
-            title="HIS Histogram: Zn–N–CG angle (N=ND1/NE2)",
-            xlabel="Angle Zn–N–CG (°)",
+            title="HIS Zn–N–Cγ angle",
+            xlabel="Angle Zn–N–Cγ (°)",
             out_png_name="Figures/his_zn_coord_cg_angle_histogram.png",
             bins=18,
             unit="°",
+            bar_alpha=0.5,
+            include_series_mean=False,
+            include_reference_mean=False,
+            reference_label_suffix=" reference",
+            reference_series=
+            [ref_his_coord_ne2_angles, ref_his_coord_nd1_angles]
+            if ref_his_coord_ne2_angles or ref_his_coord_nd1_angles
+            else None,
         )
 
     if his_cg_cb_nd1_angles or his_cg_cb_ne2_angles:
         plot_overlay_histogram(
             [his_cg_cb_ne2_angles, his_cg_cb_nd1_angles],
-            ["NE2", "ND1"],
+            ["Nε", "Nδ"],
             [PALETTE[1], PALETTE[0]],
-            title="HIS Histogram: N–Cγ–Cβ angle (N=ND1/NE2)",
-            xlabel="Angle ND/NE–Cγ–Cβ (°)",
+            title="HIS N–Cγ–Cβ angle",
+            xlabel="Angle NN–Cγ–Cβ (°)",
             out_png_name="Figures/his_coord_cg_cb_angle_histogram.png",
             bins=18,
             unit="°",
+            bar_alpha=0.5,
+            include_series_mean=False,
+            include_reference_mean=False,
+            reference_label_suffix=" reference",
+            reference_series=
+            [ref_his_cg_cb_ne2_angles, ref_his_cg_cb_nd1_angles]
+            if ref_his_cg_cb_ne2_angles or ref_his_cg_cb_nd1_angles
+            else None,
         )
 
     if his_cg_cb_ca_nd1_angles or his_cg_cb_ca_ne2_angles:
         plot_overlay_histogram(
             [his_cg_cb_ca_ne2_angles, his_cg_cb_ca_nd1_angles],
-            ["NE2", "ND1"],
+            ["Nε", "Nδ"],
             [PALETTE[1], PALETTE[0]],
-            title="HIS Histogram: Cγ–Cβ–Cα angle (by coordinating atom)",
+            title="HIS Cγ–Cβ–Cα angle",
             xlabel="Angle Cγ–Cβ–Cα (°)",
             out_png_name="Figures/his_coord_cg_cb_ca_angle_histogram.png",
             bins=18,
             unit="°",
+            bar_alpha=0.5,
+            include_series_mean=False,
+            include_reference_mean=False,
+            reference_label_suffix=" reference",
+            reference_series=
+            [ref_his_cg_cb_ca_ne2_angles, ref_his_cg_cb_ca_nd1_angles]
+            if ref_his_cg_cb_ca_ne2_angles or ref_his_cg_cb_ca_nd1_angles
+            else None,
         )
 
     if his_zn_cg_ca_nd1_dihedrals or his_zn_cg_ca_ne2_dihedrals:
         plot_overlay_histogram(
             [his_zn_cg_ca_ne2_dihedrals, his_zn_cg_ca_nd1_dihedrals],
-            ["NE2", "ND1"],
+            ["Nε", "Nδ"],
             [PALETTE[1], PALETTE[0]],
-            title="HIS Histogram: Zn–N–Cγ–Cα dihedral (N=ND1/NE2)",
+            title="HIS Zn–N–Cγ–Cα dihedral",
             xlabel="Dihedral angle Zn–N–Cγ–Cα (°)",
             out_png_name="Figures/his_zn_coord_cg_ca_dihedral_histogram.png",
             bins=25,
             unit="°",
+            bar_alpha=0.5,
+            include_series_mean=False,
+            include_reference_mean=False,
+            reference_label_suffix=" reference",
+            reference_series=
+            [ref_his_zn_cg_ca_ne2_dihedrals, ref_his_zn_cg_ca_nd1_dihedrals]
+            if ref_his_zn_cg_ca_ne2_dihedrals or ref_his_zn_cg_ca_nd1_dihedrals
+            else None,
         )
 
     if his_coord_nd1_counts or his_coord_ne2_counts:
-        plot_coord_atom_count_histogram(
-            his_coord_nd1_counts,
-            his_coord_ne2_counts,
-            title="HIS Histogram: Coordinating atom counts among 4 closest",
-            xlabel="Count among 4 closest coordinating atoms",
+        plot_overlay_histogram(
+            [his_coord_ne2_counts, his_coord_nd1_counts],
+            ["Nε", "Nδ"],
+            [PALETTE[1], PALETTE[0]],
+            title="HIS Coordinating atom counts",
+            xlabel="Number per structure",
             out_png_name="Figures/his_coord_atom_counts_histogram.png",
-            max_atoms=4,
+            bins=5,
+            unit="count",
+            x_range=(-0.5, 4.5),
+            bar_alpha=0.5,
+            include_series_mean=False,
+            include_reference_mean=False,
+            reference_label_suffix=" ref.",
+            reference_series=
+            [ref_his_coord_ne2_counts, ref_his_coord_nd1_counts]
+            if ref_his_coord_ne2_counts or ref_his_coord_nd1_counts
+            else None,
         )
     if open_html:
         print(f"Opened {min(num_open, max_open)}/{len(outliers)} HTML files (max {max_open}).")
