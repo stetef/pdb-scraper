@@ -1,11 +1,5 @@
 #!/usr/bin/env python3
-"""
-Generate a self-contained HTML file with all PNG figures from the Figures directory.
-Images are embedded as base64, creating a single shareable file.
-
-Usage:
-    python scripts/generate_combined_figures.py
-"""
+"""Generate a self-contained HTML file with all PNG figures from a directory."""
 
 import argparse
 import base64
@@ -29,7 +23,7 @@ def format_caption(filename: str) -> str:
 
 
 def _detect_grid_columns(png_files: list[Path]) -> int:
-    return 4
+    return 3
 
 
 def _detect_system_label(figures_dir: Path, png_files: list[Path]) -> str:
@@ -54,14 +48,20 @@ def _detect_system_label(figures_dir: Path, png_files: list[Path]) -> str:
     return "Zn-4Cys"
 
 
-def generate_html(figures_dir: Path, output_path: Path, *, system_label: str | None = None) -> Path | None:
+def generate_html(
+    output_dir: Path,
+    *,
+    system_label: str | None = None,
+    delete_pngs: bool = False,
+) -> Path | None:
     """Generate self-contained HTML with embedded images."""
     
     # Get all PNG files
-    png_files = sorted(figures_dir.glob('*.png'))
+    output_dir.mkdir(parents=True, exist_ok=True)
+    png_files = sorted(output_dir.glob('*.png'))
     
     if not png_files:
-        print(f"No PNG files found in {figures_dir}")
+        print(f"No PNG files found in {output_dir}")
         return
     
     print(f"Found {len(png_files)} PNG files:")
@@ -69,8 +69,8 @@ def generate_html(figures_dir: Path, output_path: Path, *, system_label: str | N
         print(f"  - {png.name}")
     
     grid_columns = _detect_grid_columns(png_files)
-    system_label = system_label or _detect_system_label(figures_dir, png_files)
-    output_path = output_path.with_name(f"combined_figures_grid_{system_label}.html")
+    system_label = system_label or _detect_system_label(output_dir, png_files)
+    output_path = output_dir / f"combined_figures_grid_{system_label}.html"
 
     # Generate HTML header
     html_parts = ['''<!DOCTYPE html>
@@ -203,27 +203,44 @@ def generate_html(figures_dir: Path, output_path: Path, *, system_label: str | N
     print(f"\n✓ Generated {output_path}")
     print(f"  File size: {file_size_mb:.2f} MB")
     print(f"  Images embedded: {len(png_files)}")
+    if delete_pngs:
+        removed = 0
+        for png in png_files:
+            try:
+                png.unlink()
+                removed += 1
+            except OSError as exc:
+                print(f"Warning: failed to delete {png}: {exc}")
+        print(f"  PNG files deleted: {removed}")
     print(f"\nYou can now share this single HTML file with collaborators!")
     return output_path
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Generate a self-contained HTML for Figures PNGs.")
+    parser = argparse.ArgumentParser(description="Generate a self-contained HTML for PNGs in a directory.")
+    parser.add_argument(
+        "--out-dir",
+        dest="out_dir",
+        default="Figures",
+        help="Directory containing PNG files (default: Figures).",
+    )
     parser.add_argument(
         "--system-label",
         dest="system_label",
         help="Override system label used in title and output filename.",
     )
+    parser.add_argument(
+        "--delete-pngs",
+        action="store_true",
+        help="Delete PNG files after embedding them in the HTML.",
+    )
     return parser.parse_args()
 
 
 if __name__ == '__main__':
-    # Set up paths
-    script_dir = Path(__file__).parent
-    project_root = script_dir.parent
-    figures_dir = project_root / 'Figures'
-    output_path = figures_dir / 'combined_figures_grid.html'
-    
-    # Generate the HTML
     args = _parse_args()
-    generate_html(figures_dir, output_path, system_label=args.system_label)
+    generate_html(
+        Path(args.out_dir),
+        system_label=args.system_label,
+        delete_pngs=args.delete_pngs,
+    )

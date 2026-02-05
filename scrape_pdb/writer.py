@@ -132,7 +132,8 @@ def _apply_residue_h_overrides(mol: ob.OBMol, meta: list[dict[str, str]]) -> Non
                 nbr.GetAtomicNum() in metal_atomic_nums
                 for nbr in ob.OBAtomAtomIter(atom)
             )
-            atom.SetImplicitHCount(0 if bonded_to_metal else 1)
+            coord_flag = fields.get("COORD") == "1"
+            atom.SetImplicitHCount(0 if bonded_to_metal or coord_flag else 1)
             continue
 
         if res == "CYS" and atom.GetAtomicNum() == 16 and atom_name == "SG":
@@ -140,7 +141,8 @@ def _apply_residue_h_overrides(mol: ob.OBMol, meta: list[dict[str, str]]) -> Non
                 nbr.GetAtomicNum() in metal_atomic_nums
                 for nbr in ob.OBAtomAtomIter(atom)
             )
-            if bonded_to_metal:
+            coord_flag = fields.get("COORD") == "1"
+            if bonded_to_metal or coord_flag:
                 atom.SetImplicitHCount(0)
 
 

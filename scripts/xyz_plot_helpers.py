@@ -15,13 +15,15 @@ from itertools import permutations
 from pathlib import Path
 from typing import Callable, Dict, List, Tuple
 
+"#AAAAAA"
+"#000000"
 
 PALETTE = [
     "#2A7DBF", "#E9C46A",
     "#89B397", "#B7410E",
-    "#3A3D42", "#8FA998",
+    "#6D597A", "#3A3D42",
     "#457B9D", "#4A7C59",
-    "#F4978E", "#6D597A",
+    "#8FA998", "#F4978E",
 ]
 
 
@@ -52,6 +54,21 @@ def _apply_hist_rcparams(plt) -> None:
     )
 
 
+def _build_reference_gray_cycle(count: int) -> List[str]:
+    if count <= 0:
+        return []
+    if count == 1:
+        return ["#000000"]
+    max_val = 0xAA
+    step = max_val / (count - 1)
+    colors: List[str] = []
+    for i in range(count):
+        val = int(round(i * step))
+        val = max(0, min(max_val, val))
+        colors.append(f"#{val:02X}{val:02X}{val:02X}")
+    return colors
+
+
 @dataclass(frozen=True)
 class XyzAtom:
     element: str
@@ -80,6 +97,15 @@ class MetricSpec:
     color: str
     bins: int | str = "auto"
     unit: str = "Å"
+
+
+def _output_png_path(out_png_name: str, output_dir: Path, system_label: str | None) -> str:
+    base = Path(out_png_name).name
+    stem = Path(base).stem
+    suffix = Path(base).suffix or ".png"
+    if system_label:
+        base = f"{stem}_{system_label}{suffix}"
+    return str(output_dir / base)
 
 
 def _accumulate_metric(
@@ -131,7 +157,7 @@ def _print_values_summary(label: str, values: List[float], *, unit: str) -> None
 
 def _format_reference_label(values: List[float], *, unit: str) -> str:
     if not values:
-        return "Reference\n0 values"
+        return "0 values"
     arr = np.asarray(values, dtype=float)
     mean = float(arr.mean())
     unit_suffix = unit if unit in ("°", "%") else f" {unit}" if unit else ""
@@ -141,21 +167,18 @@ def _format_reference_label(values: List[float], *, unit: str) -> str:
         mean_str = f"{mean:.2f}"
     else:
         mean_str = f"{mean:.3f}"
-    return (
-        "Reference "
-        f"{len(values)} values (mean={mean_str}{unit_suffix})"
-    )
+    return f"{len(values)} values (mean={mean_str}{unit_suffix})"
 
 
 def _format_reference_label_mean_only(values: List[float], *, unit: str) -> str:
     if not values:
-        return "Reference 0 values"
+        return "0 values"
     arr = np.asarray(values, dtype=float)
     mean = float(arr.mean())
     if unit == "Å":
-        return f"Reference {mean:.2f} A"
+        return f"{mean:.2f} A"
     unit_suffix = unit if unit in ("°", "%") else f" {unit}" if unit else ""
-    return f"Reference {mean:.2f}{unit_suffix}"
+    return f"{mean:.2f}{unit_suffix}"
 
 
 def _parse_meta_comment(comment: str) -> Dict[str, str]:
@@ -1075,6 +1098,8 @@ def plot_bond_length_histogram(
     unit: str = "Å",
     reference_values: List[float] | None = None,
     reference_label: str | None = None,
+    reference_series: List[Tuple[List[float], str, str]] | None = None,
+    show_plot: bool = True,
 ) -> None:
     """Plot a histogram of bond lengths with hover/click bin inspection.
 
@@ -1116,7 +1141,7 @@ def plot_bond_length_histogram(
         except Exception:
             return False
 
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(figsize=(10.5, 6.0))
     # Ensure gridlines are rendered behind artists like bars.
     ax.set_axisbelow(True)
     ax.grid(False)
@@ -1124,15 +1149,31 @@ def plot_bond_length_histogram(
     ax.spines["right"].set_visible(False)
     counts, edges, patches = ax.hist(distances, bins=bins, edgecolor="black", color=color, alpha=1.0, zorder=5)
 
-    if reference_values:
+    if reference_series is not None:
+        for ref_values, label, ref_color in reference_series:
+            if not ref_values:
+                continue
+            first = True
+            for val in ref_values:
+                ax.axvline(
+                    val,
+                    linestyle="-",
+                    linewidth=1.4,
+                    color=ref_color,
+                    alpha=0.9,
+                    zorder=6,
+                    label=label if first else None,
+                )
+                first = False
+    elif reference_values:
         label = reference_label or "reference"
         first = True
         for val in reference_values:
             ax.axvline(
                 val,
-                linestyle="--",
+                linestyle="-",
                 linewidth=1.4,
-                color="black",
+                color="#000000",
                 alpha=0.9,
                 zorder=6,
                 label=label if first else None,
@@ -1231,21 +1272,18 @@ def plot_bond_length_histogram(
         from matplotlib.ticker import FormatStrFormatter
 
         ax.xaxis.set_major_formatter(FormatStrFormatter("%.1f"))
-    if reference_values:
+    if reference_values or reference_series:
         handles, labels = ax.get_legend_handles_labels()
         if handles:
             ax.legend(
                 handles,
                 labels,
-                loc="upper center",
-                bbox_to_anchor=(0.5, -0.18),
-                ncol=len(labels),
-                columnspacing=1.1,
-                handletextpad=0.2,
+                loc="center left",
+                bbox_to_anchor=(1.02, 0.5),
                 frameon=False,
             )
 
-    plt.tight_layout()
+    plt.tight_layout(rect=(0.0, 0.0, 0.975, 1.0))
 
     out_path = Path(out_png_name)
     if out_path.suffix.lower() != ".png":
@@ -1259,7 +1297,8 @@ def plot_bond_length_histogram(
     except Exception as e:
         print(f"Failed to save PNG '{out_path}': {e}")
 
-    plt.show()
+    if show_plot:
+        plt.show()
 
 
 def plot_overlay_histogram(
@@ -1274,10 +1313,15 @@ def plot_overlay_histogram(
     unit: str = "Å",
     x_range: tuple[float, float] | None = None,
     reference_series: List[List[float]] | None = None,
+    reference_sets: List[Tuple[str, List[List[float]]]] | None = None,
+    reference_line_styles: List[str] | None = None,
+    reference_series_line_styles: List[str] | None = None,
+    reference_color_cycle: List[str] | None = None,
     bar_alpha: float = 0.65,
     include_series_mean: bool = True,
     include_reference_mean: bool = True,
-    reference_label_suffix: str = " reference",
+    reference_label_suffix: str = "",
+    show_plot: bool = True,
 ) -> None:
     """Plot multiple distributions on a single histogram (no hover UI)."""
     try:
@@ -1295,7 +1339,7 @@ def plot_overlay_histogram(
         print("No values collected; skipping overlay histogram plot.")
         return
 
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(figsize=(10.5, 6.0))
     ax.set_axisbelow(True)
     ax.grid(False)
     ax.spines["top"].set_visible(False)
@@ -1357,21 +1401,42 @@ def plot_overlay_histogram(
             for patch in patches:
                 patch.set_edgecolor(PALETTE[4])
 
-    if reference_series is not None:
-        for ref_values, label, color in zip(reference_series, labels, colors):
-            if not ref_values:
-                continue
-            ref_label = _format_mean_label(label, ref_values) if include_reference_mean else label
-            for i, v in enumerate(ref_values):
-                ax.axvline(
-                    v,
-                    color=color,
-                    linestyle="--",
-                    linewidth=1.5,
-                    alpha=0.9,
-                    zorder=6,
-                    label=f"{ref_label}{reference_label_suffix}" if i == 0 else None,
-                )
+    ref_sets: List[Tuple[str, List[List[float]]]] = []
+    if reference_sets is not None:
+        ref_sets = reference_sets
+    elif reference_series is not None:
+        ref_sets = [("", reference_series)]
+
+    if ref_sets:
+        for set_idx, (ref_name, ref_series) in enumerate(ref_sets):
+            set_color = None
+            if reference_color_cycle:
+                set_color = reference_color_cycle[set_idx % len(reference_color_cycle)]
+            for series_idx, (ref_values, label, color) in enumerate(zip(ref_series, labels, colors)):
+                if not ref_values:
+                    continue
+                ref_label = _format_mean_label(label, ref_values) if include_reference_mean else label
+                if ref_name:
+                    display_label = f"{ref_name} {ref_label}{reference_label_suffix}"
+                else:
+                    display_label = f"{ref_label}{reference_label_suffix}"
+                if reference_series_line_styles and series_idx < len(reference_series_line_styles):
+                    linestyle = reference_series_line_styles[series_idx]
+                elif reference_line_styles and set_idx < len(reference_line_styles):
+                    linestyle = reference_line_styles[set_idx]
+                else:
+                    linestyle = "-"
+                line_color = set_color if set_color is not None else color
+                for i, v in enumerate(ref_values):
+                    ax.axvline(
+                        v,
+                        color=line_color,
+                        linestyle=linestyle,
+                        linewidth=1.5,
+                        alpha=0.9,
+                        zorder=6,
+                        label=display_label if i == 0 else None,
+                    )
 
     if x_range is not None:
         ax.set_xlim(xmin, xmax)
@@ -1406,14 +1471,11 @@ def plot_overlay_histogram(
         ax.legend(
             handles,
             labels,
-            loc="upper center",
-            bbox_to_anchor=(0.5, -0.18),
-            ncol=len(labels),
-            columnspacing=1.1,
-            handletextpad=0.2,
+            loc="center left",
+            bbox_to_anchor=(1.02, 0.5),
             frameon=False,
         )
-    plt.tight_layout()
+    plt.tight_layout(rect=(0.0, 0.0, 0.975, 1.0))
 
     out_path = Path(out_png_name)
     if out_path.suffix.lower() != ".png":
@@ -1427,7 +1489,8 @@ def plot_overlay_histogram(
     except Exception as e:
         print(f"Failed to save PNG '{out_path}': {e}")
 
-    plt.show()
+    if show_plot:
+        plt.show()
 
 
 def plot_coord_atom_count_histogram(
@@ -1438,6 +1501,7 @@ def plot_coord_atom_count_histogram(
     xlabel: str,
     out_png_name: str,
     max_atoms: int = 4,
+    show_plot: bool = True,
 ) -> None:
     """Plot side-by-side count histogram for ND1 vs NE2 coordination counts per file."""
     try:
@@ -1462,7 +1526,7 @@ def plot_coord_atom_count_histogram(
     x = np.arange(max_bins)
     width = 0.38
 
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(figsize=(10.5, 6.0))
     ax.set_axisbelow(True)
     ax.grid(False)
     ax.spines["top"].set_visible(False)
@@ -1480,14 +1544,11 @@ def plot_coord_atom_count_histogram(
         ax.legend(
             handles,
             labels,
-            loc="upper center",
-            bbox_to_anchor=(0.5, -0.18),
-            ncol=len(labels),
-            columnspacing=1.1,
-            handletextpad=0.2,
+            loc="center left",
+            bbox_to_anchor=(1.02, 0.5),
             frameon=False,
         )
-    plt.tight_layout()
+    plt.tight_layout(rect=(0.0, 0.0, 0.975, 1.0))
 
     out_path = Path(out_png_name)
     if out_path.suffix.lower() != ".png":
@@ -1501,7 +1562,8 @@ def plot_coord_atom_count_histogram(
     except Exception as e:
         print(f"Failed to save PNG '{out_path}': {e}")
 
-    plt.show()
+    if show_plot:
+        plt.show()
 
 
 def find_xyz_files(directory: Path) -> List[Path]:
@@ -2688,32 +2750,45 @@ def _generate_histograms(
     metrics: Dict[str, MetricAccum],
     metric_specs: List[MetricSpec],
     *,
+    output_dir: Path,
+    system_label: str | None,
+    show_plots: bool,
     reference_metrics: Dict[str, List[float]] | None = None,
     reference_label: str | None = None,
+    reference_entries: List[Tuple[str, Dict[str, List[float]]]] | None = None,
 ) -> None:
     for spec in metric_specs:
         acc = metrics[spec.key]
         if not acc.values:
             continue
         ref_vals = reference_metrics.get(spec.key) if reference_metrics else None
-        if reference_metrics:
+        label = reference_label
+        reference_series: List[Tuple[List[float], str, str]] | None = None
+        if reference_entries:
+            ref_colors = _build_reference_gray_cycle(len(reference_entries))
+            reference_series = []
+            for idx, (ref_label, ref_metrics) in enumerate(reference_entries):
+                ref_values = ref_metrics.get(spec.key, [])
+                color = ref_colors[idx] if idx < len(ref_colors) else "#000000"
+                reference_series.append((ref_values, ref_label, color))
+        elif reference_metrics:
             if spec.key in {"cys_sg_center_mean", "his_coord_center_mean"}:
                 label = _format_reference_label_mean_only(ref_vals or [], unit=spec.unit)
             else:
                 label = _format_reference_label(ref_vals or [], unit=spec.unit)
-        else:
-            label = reference_label
         plot_bond_length_histogram(
             acc.values,
             acc.sources,
             title=spec.title,
             xlabel=spec.xlabel,
-            out_png_name=spec.out_png_name,
+            out_png_name=_output_png_path(spec.out_png_name, output_dir, system_label),
             bins=spec.bins,
             color=spec.color,
             unit=spec.unit,
             reference_values=ref_vals,
             reference_label=label,
+            reference_series=reference_series,
+            show_plot=show_plots,
         )
 
 
@@ -2731,8 +2806,15 @@ def run_check_mode(
     xyz_dir: Path,
     *,
     open_html: bool,
+    output_dir: Path | None = None,
+    system_label: str | None = None,
+    show_plots: bool = True,
     reference_path: Path | None = None,
+    reference_entries: List[Tuple[str, Path]] | None = None,
+    generate_outlier_html: bool = True,
 ) -> None:
+    output_dir = output_dir or Path("Figures")
+    output_dir.mkdir(parents=True, exist_ok=True)
     all_xyz = find_xyz_files(xyz_dir)
     if not all_xyz:
         print(f"No .xyz files found in: {xyz_dir}")
@@ -2783,6 +2865,7 @@ def run_check_mode(
 
     reference_metrics: Dict[str, List[float]] | None = None
     reference_label: str | None = None
+    reference_entries_data: List[Dict[str, object]] = []
     ref_his_coord_nd1_dists: List[float] = []
     ref_his_coord_ne2_dists: List[float] = []
     ref_his_ca_nd1_dists: List[float] = []
@@ -2801,7 +2884,115 @@ def run_check_mode(
     ref_his_zn_cg_ca_ne2_dihedrals: List[float] = []
     ref_his_coord_nd1_counts: List[int] = []
     ref_his_coord_ne2_counts: List[int] = []
-    if reference_path is not None:
+
+    def _build_reference_sets(*series_keys: str) -> List[Tuple[str, List[List[float]]]]:
+        sets: List[Tuple[str, List[List[float]]]] = []
+        for entry in reference_entries_data:
+            label = str(entry.get("label", "Reference"))
+            series = [entry.get(k, []) for k in series_keys]
+            if any(series):
+                sets.append((label, series))
+        return sets
+
+    def _fill_missing_reference_metrics(
+        primary: Dict[str, List[float]],
+        fallback: Dict[str, List[float]],
+    ) -> Dict[str, List[float]]:
+        merged = dict(primary)
+        for key, values in fallback.items():
+            if not merged.get(key):
+                merged[key] = values
+        return merged
+
+    if reference_entries:
+        for label, ref_path in reference_entries:
+            print(f"Loading reference XYZ ({label}): {ref_path}")
+            ref_atoms = parse_xyz_atoms(ref_path)
+            if not ref_atoms:
+                print(f"Warning: reference XYZ appears empty or unreadable: {ref_path}")
+                continue
+            if any(a.meta for a in ref_atoms):
+                ref_metrics = {spec.key: spec.compute(ref_atoms) for spec in metric_specs}
+                ref_atoms_for_his = ref_atoms
+            else:
+                print("Reference XYZ has no metadata; using element-based nearest-4-to-Zn inference.")
+                ref_metrics = _reference_metrics_from_elements(ref_atoms, metric_specs)
+                ref_atoms_for_his, _ = _infer_reference_atoms_and_labels(ref_atoms)
+
+            fallback_metrics = _reference_metrics_from_elements(ref_atoms, metric_specs)
+            ref_metrics = _fill_missing_reference_metrics(ref_metrics, fallback_metrics)
+
+            plot_reference_xyz_py3dmol(ref_path, ref_path.with_suffix(".html"))
+            print(f"Reference metrics ({label}):")
+            for spec in metric_specs:
+                _print_values_summary(
+                    f"  - {spec.title}",
+                    ref_metrics.get(spec.key, []),
+                    unit=spec.unit,
+                )
+
+            ref_entry: Dict[str, object] = {
+                "label": label,
+                "metrics": ref_metrics,
+                "his_coord_nd1_dists": [],
+                "his_coord_ne2_dists": [],
+                "his_ca_nd1_dists": [],
+                "his_ca_ne2_dists": [],
+                "his_cb_nd1_dists": [],
+                "his_cb_ne2_dists": [],
+                "his_cg_nd1_dists": [],
+                "his_cg_ne2_dists": [],
+                "his_coord_nd1_angles": [],
+                "his_coord_ne2_angles": [],
+                "his_cg_cb_nd1_angles": [],
+                "his_cg_cb_ne2_angles": [],
+                "his_cg_cb_ca_nd1_angles": [],
+                "his_cg_cb_ca_ne2_angles": [],
+                "his_zn_cg_ca_nd1_dihedrals": [],
+                "his_zn_cg_ca_ne2_dihedrals": [],
+                "his_coord_nd1_counts": [],
+                "his_coord_ne2_counts": [],
+            }
+
+            if ref_atoms_for_his:
+                coord_by_atom = his_coord_distances_by_atom(ref_atoms_for_his, max_residues=4)
+                ref_entry["his_coord_nd1_dists"] = coord_by_atom.get("ND1", [])
+                ref_entry["his_coord_ne2_dists"] = coord_by_atom.get("NE2", [])
+
+                ca_by_atom = his_atom_distances_by_coord_atom(ref_atoms_for_his, "CA", max_residues=4)
+                ref_entry["his_ca_nd1_dists"] = ca_by_atom.get("ND1", [])
+                ref_entry["his_ca_ne2_dists"] = ca_by_atom.get("NE2", [])
+
+                cb_by_atom = his_atom_distances_by_coord_atom(ref_atoms_for_his, "CB", max_residues=4)
+                ref_entry["his_cb_nd1_dists"] = cb_by_atom.get("ND1", [])
+                ref_entry["his_cb_ne2_dists"] = cb_by_atom.get("NE2", [])
+
+                cg_by_atom = his_atom_distances_by_coord_atom(ref_atoms_for_his, "CG", max_residues=4)
+                ref_entry["his_cg_nd1_dists"] = cg_by_atom.get("ND1", [])
+                ref_entry["his_cg_ne2_dists"] = cg_by_atom.get("NE2", [])
+
+                angle_by_atom = his_coord_cg_angles_by_atom(ref_atoms_for_his, max_residues=4)
+                ref_entry["his_coord_nd1_angles"] = angle_by_atom.get("ND1", [])
+                ref_entry["his_coord_ne2_angles"] = angle_by_atom.get("NE2", [])
+
+                cg_cb_angles = his_coord_cg_ca_angles_by_atom(ref_atoms_for_his, max_residues=4)
+                ref_entry["his_cg_cb_nd1_angles"] = cg_cb_angles.get("ND1", [])
+                ref_entry["his_cg_cb_ne2_angles"] = cg_cb_angles.get("NE2", [])
+
+                cg_cb_ca_angles = his_cg_cb_ca_angles_by_atom(ref_atoms_for_his, max_residues=4)
+                ref_entry["his_cg_cb_ca_nd1_angles"] = cg_cb_ca_angles.get("ND1", [])
+                ref_entry["his_cg_cb_ca_ne2_angles"] = cg_cb_ca_angles.get("NE2", [])
+
+                dihedrals = his_coord_zn_cg_ca_dihedral_by_atom(ref_atoms_for_his, max_residues=4)
+                ref_entry["his_zn_cg_ca_nd1_dihedrals"] = dihedrals.get("ND1", [])
+                ref_entry["his_zn_cg_ca_ne2_dihedrals"] = dihedrals.get("NE2", [])
+
+                ref_nd1_count, ref_ne2_count = his_coordination_atom_counts(ref_atoms_for_his, max_atoms=4)
+                ref_entry["his_coord_nd1_counts"] = [ref_nd1_count]
+                ref_entry["his_coord_ne2_counts"] = [ref_ne2_count]
+
+            reference_entries_data.append(ref_entry)
+    elif reference_path is not None:
         print(f"Loading reference XYZ: {reference_path}")
         ref_atoms = parse_xyz_atoms(reference_path)
         if not ref_atoms:
@@ -2813,6 +3004,8 @@ def run_check_mode(
             print("Reference XYZ has no metadata; using element-based nearest-4-to-Zn inference.")
             reference_metrics = _reference_metrics_from_elements(ref_atoms, metric_specs)
             ref_atoms_for_his, _ = _infer_reference_atoms_and_labels(ref_atoms)
+        fallback_metrics = _reference_metrics_from_elements(ref_atoms, metric_specs)
+        reference_metrics = _fill_missing_reference_metrics(reference_metrics, fallback_metrics)
         reference_label = "Reference"
         plot_reference_xyz_py3dmol(reference_path, reference_path.with_suffix(".html"))
         print("Reference metrics:")
@@ -2928,29 +3121,46 @@ def run_check_mode(
             atoms = atoms_by_path.get(p, [])
             n = count_cys_residues_with_ca_cb_sg(atoms)
             print(f"  - {p.name} (count={n})")
-            xyz_text = p.read_text(encoding="utf-8")
-            plot_all_atoms_py3dmol(
-                xyz_text,
-                atoms,
-                title=p.name,
-                out_html=p.with_suffix(".html"),
-            )
+            if generate_outlier_html:
+                xyz_text = p.read_text(encoding="utf-8")
+                plot_all_atoms_py3dmol(
+                    xyz_text,
+                    atoms,
+                    title=p.name,
+                    out_html=p.with_suffix(".html"),
+                )
 
-            if open_html and num_open < max_open:
-                out_html = p.with_suffix(".html")
-                webbrowser.open(out_html.resolve().as_uri())
-                num_open += 1
+                if open_html and num_open < max_open:
+                    out_html = p.with_suffix(".html")
+                    webbrowser.open(out_html.resolve().as_uri())
+                    num_open += 1
 
     print(f"Outliers: [{len(outliers)}/{len(all_xyz)}]")
     print(f"Outliers with 3 residues: {outliers_with_3}")
     print(f"Outliers with 5 residues: {outliers_with_5}")
     _print_metric_summaries(metrics, metric_specs, total_files=len(all_xyz))
+    reference_metrics_entries: List[Tuple[str, Dict[str, List[float]]]] = []
+    if reference_entries_data:
+        for entry in reference_entries_data:
+            metrics_entry = entry.get("metrics")
+            if isinstance(metrics_entry, dict):
+                reference_metrics_entries.append(
+                    (str(entry.get("label", "Reference")), metrics_entry)
+                )
     _generate_histograms(
         metrics,
         metric_specs,
+        output_dir=output_dir,
+        system_label=system_label,
+        show_plots=show_plots,
         reference_metrics=reference_metrics,
         reference_label=reference_label,
+        reference_entries=reference_metrics_entries if reference_metrics_entries else None,
     )
+
+    use_multi_refs = bool(reference_entries_data)
+    ref_set_count = len(reference_entries_data) if reference_entries_data else (1 if reference_path is not None else 0)
+    reference_color_cycle = _build_reference_gray_cycle(ref_set_count) if ref_set_count else None
 
     if his_coord_nd1_dists or his_coord_ne2_dists:
         _print_values_summary(
@@ -2969,17 +3179,27 @@ def run_check_mode(
             [PALETTE[1], PALETTE[0]],
             title="HIS Zn → Nδ/Nε distances",
             xlabel="Distance from Zn to Nδ/Nε (Å)",
-            out_png_name="Figures/his_zn_coord_distances_histogram.png",
+            out_png_name=_output_png_path(
+                "Figures/his_zn_coord_distances_histogram.png",
+                output_dir,
+                system_label,
+            ),
             bins=18,
             unit="Å",
             bar_alpha=0.5,
             include_series_mean=False,
             include_reference_mean=False,
-            reference_label_suffix=" reference",
+            reference_series_line_styles=["-", "--"],
+            reference_color_cycle=reference_color_cycle,
+            reference_sets=
+            _build_reference_sets("his_coord_ne2_dists", "his_coord_nd1_dists")
+            if use_multi_refs
+            else None,
             reference_series=
             [ref_his_coord_ne2_dists, ref_his_coord_nd1_dists]
             if ref_his_coord_ne2_dists or ref_his_coord_nd1_dists
             else None,
+            show_plot=show_plots,
         )
 
         plot_overlay_histogram(
@@ -2988,18 +3208,28 @@ def run_check_mode(
             [PALETTE[1], PALETTE[0]],
             title="HIS Zn → Nδ/Nε distances (zoomed)",
             xlabel="Distance from Zn to Nδ/Nε (Å)",
-            out_png_name="Figures/his_zn_coord_distances_histogram_2.0_2.25.png",
+            out_png_name=_output_png_path(
+                "Figures/his_zn_coord_distances_histogram_2.0_2.25.png",
+                output_dir,
+                system_label,
+            ),
             bins=75,
             unit="Å",
             x_range=(2.0, 2.25),
             bar_alpha=0.5,
             include_series_mean=False,
             include_reference_mean=False,
-            reference_label_suffix=" reference",
+            reference_series_line_styles=["-", "--"],
+            reference_color_cycle=reference_color_cycle,
+            reference_sets=
+            _build_reference_sets("his_coord_ne2_dists", "his_coord_nd1_dists")
+            if use_multi_refs
+            else None,
             reference_series=
             [ref_his_coord_ne2_dists, ref_his_coord_nd1_dists]
             if ref_his_coord_ne2_dists or ref_his_coord_nd1_dists
             else None,
+            show_plot=show_plots,
         )
 
     if his_ca_nd1_dists or his_ca_ne2_dists:
@@ -3009,17 +3239,27 @@ def run_check_mode(
             [PALETTE[1], PALETTE[0]],
             title="HIS Zn → Cα distances",
             xlabel="Distance from Zn to Cα (Å)",
-            out_png_name="Figures/his_zn_ca_distances_histogram.png",
+            out_png_name=_output_png_path(
+                "Figures/his_zn_ca_distances_histogram.png",
+                output_dir,
+                system_label,
+            ),
             bins=15,
             unit="Å",
             bar_alpha=0.5,
             include_series_mean=False,
             include_reference_mean=False,
-            reference_label_suffix=" reference",
+            reference_series_line_styles=["-", "--"],
+            reference_color_cycle=reference_color_cycle,
+            reference_sets=
+            _build_reference_sets("his_ca_ne2_dists", "his_ca_nd1_dists")
+            if use_multi_refs
+            else None,
             reference_series=
             [ref_his_ca_ne2_dists, ref_his_ca_nd1_dists]
             if ref_his_ca_ne2_dists or ref_his_ca_nd1_dists
             else None,
+            show_plot=show_plots,
         )
 
     if his_cb_nd1_dists or his_cb_ne2_dists:
@@ -3029,17 +3269,27 @@ def run_check_mode(
             [PALETTE[1], PALETTE[0]],
             title="HIS Zn → Cβ distances",
             xlabel="Distance from Zn to Cβ (Å)",
-            out_png_name="Figures/his_zn_cb_distances_histogram.png",
+            out_png_name=_output_png_path(
+                "Figures/his_zn_cb_distances_histogram.png",
+                output_dir,
+                system_label,
+            ),
             bins=15,
             unit="Å",
             bar_alpha=0.5,
             include_series_mean=False,
             include_reference_mean=False,
-            reference_label_suffix=" reference",
+            reference_series_line_styles=["-", "--"],
+            reference_color_cycle=reference_color_cycle,
+            reference_sets=
+            _build_reference_sets("his_cb_ne2_dists", "his_cb_nd1_dists")
+            if use_multi_refs
+            else None,
             reference_series=
             [ref_his_cb_ne2_dists, ref_his_cb_nd1_dists]
             if ref_his_cb_ne2_dists or ref_his_cb_nd1_dists
             else None,
+            show_plot=show_plots,
         )
 
     if his_cg_nd1_dists or his_cg_ne2_dists:
@@ -3049,17 +3299,27 @@ def run_check_mode(
             [PALETTE[1], PALETTE[0]],
             title="HIS Zn → Cγ distances",
             xlabel="Distance from Zn to Cγ (Å)",
-            out_png_name="Figures/his_zn_cg_distances_histogram.png",
+            out_png_name=_output_png_path(
+                "Figures/his_zn_cg_distances_histogram.png",
+                output_dir,
+                system_label,
+            ),
             bins=15,
             unit="Å",
             bar_alpha=0.5,
             include_series_mean=False,
             include_reference_mean=False,
-            reference_label_suffix=" reference",
+            reference_series_line_styles=["-", "--"],
+            reference_color_cycle=reference_color_cycle,
+            reference_sets=
+            _build_reference_sets("his_cg_ne2_dists", "his_cg_nd1_dists")
+            if use_multi_refs
+            else None,
             reference_series=
             [ref_his_cg_ne2_dists, ref_his_cg_nd1_dists]
             if ref_his_cg_ne2_dists or ref_his_cg_nd1_dists
             else None,
+            show_plot=show_plots,
         )
 
     if his_coord_nd1_angles or his_coord_ne2_angles:
@@ -3079,17 +3339,27 @@ def run_check_mode(
             [PALETTE[1], PALETTE[0]],
             title="HIS Zn–N–Cγ angle",
             xlabel="Angle Zn–N–Cγ (°)",
-            out_png_name="Figures/his_zn_coord_cg_angle_histogram.png",
+            out_png_name=_output_png_path(
+                "Figures/his_zn_coord_cg_angle_histogram.png",
+                output_dir,
+                system_label,
+            ),
             bins=18,
             unit="°",
             bar_alpha=0.5,
             include_series_mean=False,
             include_reference_mean=False,
-            reference_label_suffix=" reference",
+            reference_series_line_styles=["-", "--"],
+            reference_color_cycle=reference_color_cycle,
+            reference_sets=
+            _build_reference_sets("his_coord_ne2_angles", "his_coord_nd1_angles")
+            if use_multi_refs
+            else None,
             reference_series=
             [ref_his_coord_ne2_angles, ref_his_coord_nd1_angles]
             if ref_his_coord_ne2_angles or ref_his_coord_nd1_angles
             else None,
+            show_plot=show_plots,
         )
 
     if his_cg_cb_nd1_angles or his_cg_cb_ne2_angles:
@@ -3099,17 +3369,27 @@ def run_check_mode(
             [PALETTE[1], PALETTE[0]],
             title="HIS N–Cγ–Cβ angle",
             xlabel="Angle NN–Cγ–Cβ (°)",
-            out_png_name="Figures/his_coord_cg_cb_angle_histogram.png",
+            out_png_name=_output_png_path(
+                "Figures/his_coord_cg_cb_angle_histogram.png",
+                output_dir,
+                system_label,
+            ),
             bins=18,
             unit="°",
             bar_alpha=0.5,
             include_series_mean=False,
             include_reference_mean=False,
-            reference_label_suffix=" reference",
+            reference_series_line_styles=["-", "--"],
+            reference_color_cycle=reference_color_cycle,
+            reference_sets=
+            _build_reference_sets("his_cg_cb_ne2_angles", "his_cg_cb_nd1_angles")
+            if use_multi_refs
+            else None,
             reference_series=
             [ref_his_cg_cb_ne2_angles, ref_his_cg_cb_nd1_angles]
             if ref_his_cg_cb_ne2_angles or ref_his_cg_cb_nd1_angles
             else None,
+            show_plot=show_plots,
         )
 
     if his_cg_cb_ca_nd1_angles or his_cg_cb_ca_ne2_angles:
@@ -3119,17 +3399,27 @@ def run_check_mode(
             [PALETTE[1], PALETTE[0]],
             title="HIS Cγ–Cβ–Cα angle",
             xlabel="Angle Cγ–Cβ–Cα (°)",
-            out_png_name="Figures/his_coord_cg_cb_ca_angle_histogram.png",
+            out_png_name=_output_png_path(
+                "Figures/his_coord_cg_cb_ca_angle_histogram.png",
+                output_dir,
+                system_label,
+            ),
             bins=18,
             unit="°",
             bar_alpha=0.5,
             include_series_mean=False,
             include_reference_mean=False,
-            reference_label_suffix=" reference",
+            reference_series_line_styles=["-", "--"],
+            reference_color_cycle=reference_color_cycle,
+            reference_sets=
+            _build_reference_sets("his_cg_cb_ca_ne2_angles", "his_cg_cb_ca_nd1_angles")
+            if use_multi_refs
+            else None,
             reference_series=
             [ref_his_cg_cb_ca_ne2_angles, ref_his_cg_cb_ca_nd1_angles]
             if ref_his_cg_cb_ca_ne2_angles or ref_his_cg_cb_ca_nd1_angles
             else None,
+            show_plot=show_plots,
         )
 
     if his_zn_cg_ca_nd1_dihedrals or his_zn_cg_ca_ne2_dihedrals:
@@ -3139,17 +3429,27 @@ def run_check_mode(
             [PALETTE[1], PALETTE[0]],
             title="HIS Zn–N–Cγ–Cα dihedral",
             xlabel="Dihedral angle Zn–N–Cγ–Cα (°)",
-            out_png_name="Figures/his_zn_coord_cg_ca_dihedral_histogram.png",
+            out_png_name=_output_png_path(
+                "Figures/his_zn_coord_cg_ca_dihedral_histogram.png",
+                output_dir,
+                system_label,
+            ),
             bins=25,
             unit="°",
             bar_alpha=0.5,
             include_series_mean=False,
             include_reference_mean=False,
-            reference_label_suffix=" reference",
+            reference_series_line_styles=["-", "--"],
+            reference_color_cycle=reference_color_cycle,
+            reference_sets=
+            _build_reference_sets("his_zn_cg_ca_ne2_dihedrals", "his_zn_cg_ca_nd1_dihedrals")
+            if use_multi_refs
+            else None,
             reference_series=
             [ref_his_zn_cg_ca_ne2_dihedrals, ref_his_zn_cg_ca_nd1_dihedrals]
             if ref_his_zn_cg_ca_ne2_dihedrals or ref_his_zn_cg_ca_nd1_dihedrals
             else None,
+            show_plot=show_plots,
         )
 
     if his_coord_nd1_counts or his_coord_ne2_counts:
@@ -3159,20 +3459,30 @@ def run_check_mode(
             [PALETTE[1], PALETTE[0]],
             title="HIS Coordinating atom counts",
             xlabel="Number per structure",
-            out_png_name="Figures/his_coord_atom_counts_histogram.png",
+            out_png_name=_output_png_path(
+                "Figures/his_coord_atom_counts_histogram.png",
+                output_dir,
+                system_label,
+            ),
             bins=5,
             unit="count",
             x_range=(-0.5, 4.5),
             bar_alpha=0.5,
             include_series_mean=False,
             include_reference_mean=False,
-            reference_label_suffix=" ref.",
+            reference_series_line_styles=["-", "--"],
+            reference_color_cycle=reference_color_cycle,
+            reference_sets=
+            _build_reference_sets("his_coord_ne2_counts", "his_coord_nd1_counts")
+            if use_multi_refs
+            else None,
             reference_series=
             [ref_his_coord_ne2_counts, ref_his_coord_nd1_counts]
             if ref_his_coord_ne2_counts or ref_his_coord_nd1_counts
             else None,
+            show_plot=show_plots,
         )
-    if open_html:
+    if open_html and generate_outlier_html:
         print(f"Opened {min(num_open, max_open)}/{len(outliers)} HTML files (max {max_open}).")
 
 
@@ -3225,3 +3535,49 @@ def run_plot_mode(xyz_dir: Path, *, file_arg: str | None, open_html: bool) -> No
         else:
             out_html = selected_paths[0].with_suffix(".html")
             webbrowser.open(out_html.resolve().as_uri())
+
+
+def run_directory_mode(
+    xyz_dir: Path,
+    *,
+    open_html: bool,
+    output_dir: Path,
+    system_label: str | None,
+    show_plots: bool,
+    reference_path: Path | None = None,
+    reference_entries: List[Tuple[str, Path]] | None = None,
+) -> None:
+    all_xyz = find_xyz_files(xyz_dir)
+    if not all_xyz:
+        print(f"No .xyz files found in: {xyz_dir}")
+        return
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    run_check_mode(
+        xyz_dir,
+        open_html=False,
+        output_dir=output_dir,
+        system_label=system_label,
+        show_plots=show_plots,
+        reference_path=reference_path,
+        reference_entries=reference_entries,
+        generate_outlier_html=False,
+    )
+
+    atoms_by_source: List[Tuple[str, List[XyzAtom]]] = []
+    for p in all_xyz:
+        atoms_by_source.append((p.name, parse_xyz_atoms(p)))
+
+    out_name = "3dmodel.html"
+    if system_label:
+        out_name = f"3dmodel_{system_label}.html"
+    resseq_out_html = output_dir / out_name
+    plot_resseq_paths(
+        atoms_by_source,
+        title="origin → SG → CB → CA per RESSEQ",
+        out_html=resseq_out_html,
+    )
+
+    if open_html:
+        webbrowser.open(resseq_out_html.resolve().as_uri())
