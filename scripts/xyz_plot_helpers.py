@@ -4,9 +4,11 @@
 from __future__ import annotations
 
 from bisect import bisect_right
-from collections import deque
+from collections import Counter, deque
 import json
 import numpy as np
+import re
+import shutil
 import subprocess
 import sys
 import webbrowser
@@ -15,8 +17,6 @@ from itertools import permutations
 from pathlib import Path
 from typing import Callable, Dict, List, Tuple
 
-"#AAAAAA"
-"#000000"
 
 PALETTE = [
     "#2A7DBF", "#E9C46A",
@@ -227,6 +227,205 @@ def parse_xyz_atoms(path: Path) -> List[XyzAtom]:
         atoms.append(XyzAtom(element=element, x=x, y=y, z=z, meta=meta, raw_comment=comment))
 
     return atoms
+
+
+def _normalize_residue_letter(residue: str) -> str:
+    res = residue.strip().upper()
+    if res == "HIS":
+        return "H"
+    if res == "CYS":
+        return "C"
+    return res[:1] if res else ""
+
+
+def _parse_resseq_int(resseq: str) -> int | None:
+    try:
+        return int(resseq)
+    except (TypeError, ValueError):
+        return None
+
+
+def _build_chain_sequence(residue_map: Dict[int, str], *, use_latex: bool) -> str:
+    items = sorted(residue_map.items())
+    if not items:
+        return ""
+    parts = [items[0][1]]
+    prev_resseq = items[0][0]
+    for resseq, letter in items[1:]:
+        gap = resseq - prev_resseq
+        if gap > 1:
+            if use_latex:
+                parts.append(f"$x_{{{gap - 1}}}$")
+            else:
+                parts.append(f"x{gap - 1}")
+        parts.append(letter)
+        prev_resseq = resseq
+    return "".join(parts)
+
+
+def _format_sequence_distance(by_chain: Dict[str, Dict[int, str]], *, use_latex: bool) -> str:
+    chain_ids = sorted(by_chain.keys())
+    if not chain_ids:
+        return ""
+    if len(chain_ids) == 1:
+        return _build_chain_sequence(by_chain[chain_ids[0]], use_latex=use_latex)
+    chunks: List[str] = []
+    for chain_id in chain_ids:
+        seq = _build_chain_sequence(by_chain[chain_id], use_latex=use_latex)
+        chunks.append(f"({seq})")
+    return "".join(chunks)
+
+
+def _sequence_distance_from_atoms(atoms: List[XyzAtom], *, use_latex: bool) -> str:
+    by_chain: Dict[str, Dict[int, str]] = {}
+    for atom in atoms:
+        if atom.meta.get("ATOM") != "CA":
+            continue
+        resseq_raw = atom.meta.get("RESSEQ")
+        if not resseq_raw:
+            continue
+        resseq = _parse_resseq_int(resseq_raw)
+        if resseq is None:
+            continue
+        chain = atom.meta.get("CHAIN", "")
+        chain_id = chain if chain else "_"
+        residue = atom.meta.get("RES", "")
+        by_chain.setdefault(chain_id, {}).setdefault(
+            resseq, _normalize_residue_letter(residue)
+        )
+    return _format_sequence_distance(by_chain, use_latex=use_latex)
+
+
+def _secstruct_letter(value: str | None) -> str:
+    sec = (value or "").strip().upper()
+    if sec == "HELIX" or sec == "H":
+        return "H"
+    if sec == "SHEET" or sec == "S":
+        return "S"
+    if sec == "LOOP" or sec == "L":
+        return "L"
+    return "?"
+
+
+def _build_chain_secstruct(residue_map: Dict[int, str]) -> str:
+    items = sorted(residue_map.items())
+    if not items:
+        return ""
+    return "".join(letter for _, letter in items)
+
+
+def _format_secstruct_distance(by_chain: Dict[str, Dict[int, str]]) -> str:
+    chain_ids = sorted(by_chain.keys())
+    if not chain_ids:
+        return ""
+    if len(chain_ids) == 1:
+        return _build_chain_secstruct(by_chain[chain_ids[0]])
+    chunks: List[str] = []
+    for chain_id in chain_ids:
+        seq = _build_chain_secstruct(by_chain[chain_id])
+        chunks.append(f"({seq})")
+    return "".join(chunks)
+
+
+def _sequence_secstruct_from_atoms(atoms: List[XyzAtom]) -> str:
+    by_chain: Dict[str, Dict[int, str]] = {}
+    for atom in atoms:
+        if atom.meta.get("ATOM") != "CA":
+            continue
+        resseq_raw = atom.meta.get("RESSEQ")
+        if not resseq_raw:
+            continue
+        resseq = _parse_resseq_int(resseq_raw)
+        if resseq is None:
+            continue
+        chain = atom.meta.get("CHAIN", "")
+        chain_id = chain if chain else "_"
+        sec_value = atom.meta.get("SEC") or atom.meta.get("SECSTRUCT")
+        by_chain.setdefault(chain_id, {}).setdefault(
+            resseq, _secstruct_letter(sec_value)
+        )
+    return _format_secstruct_distance(by_chain)
+
+
+def write_sequence_distance_file(
+    xyz_files: List[Path],
+    *,
+    output_dir: Path,
+    system_label: str | None,
+) -> None:
+    sequence_counts: Counter[str] = Counter()
+    secstruct_counts: Dict[str, Counter[str]] = {}
+    for p in xyz_files:
+        atoms = parse_xyz_atoms(p)
+        seq_text = _sequence_distance_from_atoms(atoms, use_latex=False)
+        if seq_text:
+            sequence_counts[seq_text] += 1
+            sec_text = _sequence_secstruct_from_atoms(atoms)
+            if sec_text:
+                secstruct_counts.setdefault(seq_text, Counter())[sec_text] += 1
+
+    name = "seqence_dist"
+    if system_label:
+        name = f"{name}_{system_label}"
+    out_path = output_dir / f"{name}.txt"
+    lines: List[str] = []
+    for seq, count in sorted(sequence_counts.items()):
+        sec_counts = secstruct_counts.get(seq, Counter())
+        if sec_counts:
+            sec_parts = [f"{sec}:{n}" for sec, n in sorted(sec_counts.items())]
+            lines.append(f"{seq} {count} {', '.join(sec_parts)}")
+        else:
+            lines.append(f"{seq} {count}")
+    out_path.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
+
+
+def _family_token_from_grouped_text(value: str) -> str:
+    text = value.strip()
+    groups = re.findall(r"\(([^()]*)\)", text)
+    if groups:
+        pieces = [g.strip() for g in groups if g.strip()]
+        if pieces:
+            return "-".join(pieces)
+    return text.replace(" ", "")
+
+
+def _extract_pdb_cluster_from_xyz_name(xyz_path: Path) -> Tuple[str, str]:
+    stem = xyz_path.stem
+    parts = [p for p in stem.split("_") if p]
+    pdb_id = parts[0] if parts else stem
+    cluster = next((p for p in parts if p.lower().startswith("cluster")), "clusterunknown")
+    return pdb_id, cluster
+
+
+def write_family_struct_examples(
+    xyz_files: List[Path],
+    *,
+    output_dir: Path,
+) -> None:
+    family_dir = output_dir / "family-structs"
+    family_dir.mkdir(parents=True, exist_ok=True)
+
+    first_by_family: Dict[Tuple[str, str], Path] = {}
+    for xyz_path in xyz_files:
+        atoms = parse_xyz_atoms(xyz_path)
+        seq_text = _sequence_distance_from_atoms(atoms, use_latex=False)
+        sec_text = _sequence_secstruct_from_atoms(atoms)
+        if not seq_text or not sec_text:
+            continue
+        key = (seq_text, sec_text)
+        if key not in first_by_family:
+            first_by_family[key] = xyz_path
+
+    copied = 0
+    for (seq_text, sec_text), src_path in sorted(first_by_family.items()):
+        seq_token = _family_token_from_grouped_text(seq_text)
+        sec_token = _family_token_from_grouped_text(sec_text)
+        pdb_id, cluster = _extract_pdb_cluster_from_xyz_name(src_path)
+        out_name = f"{seq_token}-{sec_token}-{pdb_id}-{cluster}.xyz"
+        shutil.copy2(src_path, family_dir / out_name)
+        copied += 1
+
+    print(f"Saved {copied} family structure example(s) to {family_dir}")
 
 
 def count_cys_residues_with_ca_cb_sg(atoms: List[XyzAtom]) -> int:
@@ -622,17 +821,244 @@ def his_mean_coord_distance(atoms: List[XyzAtom], *, max_residues: int = 4) -> f
 
 
 def ca_to_ca_distances_from_seed(atoms: List[XyzAtom]) -> List[float]:
-    """Return distances from the first CA atom to all other CA atoms in the file."""
+    """Return pairwise CA distances by walking forward through the CA list.
+
+    Uses the CA order from the file: take the first CA as seed (to others),
+    then the second CA (to remaining), then the third CA (to last). This yields
+    6 distances for 4 CA atoms.
+    """
     ca_atoms = [a for a in atoms if a.meta.get("ATOM") == "CA"]
     if len(ca_atoms) < 2:
         return []
-    seed = ca_atoms[0]
-    seed_vec = np.asarray((seed.x, seed.y, seed.z), dtype=float)
+    ca_vecs = [np.asarray((a.x, a.y, a.z), dtype=float) for a in ca_atoms]
     dists: List[float] = []
-    for a in ca_atoms[1:]:
-        vec = np.asarray((a.x, a.y, a.z), dtype=float)
-        dists.append(float(np.linalg.norm(vec - seed_vec)))
+    # Walk forward to avoid duplicate pairs (i,j) and (j,i).
+    for i in range(len(ca_vecs) - 1):
+        vi = ca_vecs[i]
+        for vj in ca_vecs[i + 1 :]:
+            dists.append(float(np.linalg.norm(vj - vi)))
     return dists
+
+
+def _select_coord_residue_candidates_for_ca(
+    atoms: List[XyzAtom],
+    *,
+    max_residues: int = 4,
+) -> List[Tuple[str, str, np.ndarray]]:
+    """Select up to `max_residues` coordinating residues and return their CA coords.
+
+    Returns a list of (res_kind, coord_name, ca_vec), where:
+      - res_kind is "CYS" or "HIS"
+      - coord_name is "SG" for CYS, "ND1" or "NE2" for HIS
+    Selection is based on smallest coordinating-atom distance to origin
+    across both CYS and HIS residues.
+    """
+    candidates: List[Tuple[float, str, str, np.ndarray]] = []
+
+    # CYS candidates: require SG + CA.
+    cys_by_residue = _cys_atoms_by_residue(atoms, required_atoms={"SG", "CA"})
+    for atom_map in cys_by_residue.values():
+        sg = atom_map.get("SG")
+        ca = atom_map.get("CA")
+        if sg is None or ca is None:
+            continue
+        sg_vec = np.asarray((sg.x, sg.y, sg.z), dtype=float)
+        sg_d2 = float(np.dot(sg_vec, sg_vec))
+        ca_vec = np.asarray((ca.x, ca.y, ca.z), dtype=float)
+        candidates.append((sg_d2, "CYS", "SG", ca_vec))
+
+    # HIS candidates: require ND1/NE2 + CA, choose coordinating atom by COORD or nearest.
+    his_by_residue = _his_atoms_by_residue(atoms, required_atoms={"ND1", "NE2", "CA"})
+    for atom_map in his_by_residue.values():
+        ca = atom_map.get("CA")
+        if ca is None:
+            continue
+
+        coord_name = None
+        coord_atom = None
+        for name in ("ND1", "NE2"):
+            a = atom_map.get(name)
+            if a is None:
+                continue
+            if a.meta.get("COORD") == "1":
+                coord_name = name
+                coord_atom = a
+                break
+
+        if coord_atom is None:
+            best_d2 = None
+            for name in ("ND1", "NE2"):
+                a = atom_map.get(name)
+                if a is None:
+                    continue
+                d2 = float(a.x * a.x + a.y * a.y + a.z * a.z)
+                if best_d2 is None or d2 < best_d2:
+                    best_d2 = d2
+                    coord_name = name
+                    coord_atom = a
+        if coord_atom is None or coord_name is None:
+            continue
+
+        coord_vec = np.asarray((coord_atom.x, coord_atom.y, coord_atom.z), dtype=float)
+        coord_d2 = float(np.dot(coord_vec, coord_vec))
+        ca_vec = np.asarray((ca.x, ca.y, ca.z), dtype=float)
+        candidates.append((coord_d2, "HIS", coord_name, ca_vec))
+
+    candidates.sort(key=lambda t: t[0])
+    selected = candidates[:max_residues]
+    return [(kind, coord_name, ca_vec) for _, kind, coord_name, ca_vec in selected]
+
+
+def _select_coord_residue_candidates_for_ca_with_coord(
+    atoms: List[XyzAtom],
+    *,
+    max_residues: int = 4,
+) -> List[Tuple[str, str, np.ndarray, float]]:
+    """Select coordinating residues and return their CA coords and coord distances.
+
+    Returns a list of (res_kind, coord_name, ca_vec, coord_dist), where coord_dist is
+    the Zn-to-coordinating-atom distance (SG for CYS, ND1/NE2 for HIS).
+    """
+    candidates: List[Tuple[float, str, str, np.ndarray, float]] = []
+
+    cys_by_residue = _cys_atoms_by_residue(atoms, required_atoms={"SG", "CA"})
+    for atom_map in cys_by_residue.values():
+        sg = atom_map.get("SG")
+        ca = atom_map.get("CA")
+        if sg is None or ca is None:
+            continue
+        sg_vec = np.asarray((sg.x, sg.y, sg.z), dtype=float)
+        sg_d2 = float(np.dot(sg_vec, sg_vec))
+        ca_vec = np.asarray((ca.x, ca.y, ca.z), dtype=float)
+        candidates.append((sg_d2, "CYS", "SG", ca_vec, float(np.sqrt(sg_d2))))
+
+    his_by_residue = _his_atoms_by_residue(atoms, required_atoms={"ND1", "NE2", "CA"})
+    for atom_map in his_by_residue.values():
+        ca = atom_map.get("CA")
+        if ca is None:
+            continue
+
+        coord_name = None
+        coord_atom = None
+        for name in ("ND1", "NE2"):
+            a = atom_map.get(name)
+            if a is None:
+                continue
+            if a.meta.get("COORD") == "1":
+                coord_name = name
+                coord_atom = a
+                break
+
+        if coord_atom is None:
+            best_d2 = None
+            for name in ("ND1", "NE2"):
+                a = atom_map.get(name)
+                if a is None:
+                    continue
+                d2 = float(a.x * a.x + a.y * a.y + a.z * a.z)
+                if best_d2 is None or d2 < best_d2:
+                    best_d2 = d2
+                    coord_name = name
+                    coord_atom = a
+        if coord_atom is None or coord_name is None:
+            continue
+
+        coord_vec = np.asarray((coord_atom.x, coord_atom.y, coord_atom.z), dtype=float)
+        coord_d2 = float(np.dot(coord_vec, coord_vec))
+        ca_vec = np.asarray((ca.x, ca.y, ca.z), dtype=float)
+        candidates.append((coord_d2, "HIS", coord_name, ca_vec, float(np.sqrt(coord_d2))))
+
+    candidates.sort(key=lambda t: t[0])
+    selected = candidates[:max_residues]
+    return [(kind, coord_name, ca_vec, coord_dist) for _, kind, coord_name, ca_vec, coord_dist in selected]
+
+
+def _tetrahedron_volume(points: List[np.ndarray]) -> float | None:
+    if len(points) < 4:
+        return None
+    p0, p1, p2, p3 = points[:4]
+    mat = np.column_stack((p1 - p0, p2 - p0, p3 - p0))
+    return float(abs(np.linalg.det(mat)) / 6.0)
+
+
+def ca_volume_and_coord_distances(
+    atoms: List[XyzAtom],
+    *,
+    max_residues: int = 4,
+) -> Tuple[float | None, List[float]]:
+    """Return CA tetrahedron volume and coordinating-atom distances for a structure."""
+    selected = _select_coord_residue_candidates_for_ca_with_coord(atoms, max_residues=max_residues)
+    if len(selected) < 4:
+        return (None, [])
+    ca_vecs = [ca_vec for _, _, ca_vec, _ in selected]
+    coord_dists = [coord_dist for _, _, _, coord_dist in selected]
+    volume = _tetrahedron_volume(ca_vecs)
+    return (volume, coord_dists) if volume is not None else (None, [])
+
+
+def ca_ca_distances_by_category(
+    atoms: List[XyzAtom],
+    *,
+    max_residues: int = 4,
+) -> Dict[str, List[float]]:
+    """Return CA-CA pair distances grouped by CYS/HIS(ND1/NE2) categories."""
+    categories = {
+        "CYS-CYS": [],
+        "CYS-HIS ND": [],
+        "CYS-HIS NE": [],
+        "HIS ND-HIS ND": [],
+        "HIS ND-HIS NE": [],
+        "HIS NE-HIS NE": [],
+    }
+
+    selected = _select_coord_residue_candidates_for_ca(atoms, max_residues=max_residues)
+    if len(selected) < 2:
+        return categories
+
+    def _his_label(coord_name: str) -> str | None:
+        if coord_name == "ND1":
+            return "ND"
+        if coord_name == "NE2":
+            return "NE"
+        return None
+
+    for i in range(len(selected) - 1):
+        kind_i, coord_i, vec_i = selected[i]
+        for j in range(i + 1, len(selected)):
+            kind_j, coord_j, vec_j = selected[j]
+            dist = float(np.linalg.norm(vec_j - vec_i))
+
+            if kind_i == "CYS" and kind_j == "CYS":
+                categories["CYS-CYS"].append(dist)
+                continue
+
+            if kind_i == "CYS" and kind_j == "HIS":
+                his_label = _his_label(coord_j)
+                if his_label == "ND":
+                    categories["CYS-HIS ND"].append(dist)
+                elif his_label == "NE":
+                    categories["CYS-HIS NE"].append(dist)
+                continue
+
+            if kind_i == "HIS" and kind_j == "CYS":
+                his_label = _his_label(coord_i)
+                if his_label == "ND":
+                    categories["CYS-HIS ND"].append(dist)
+                elif his_label == "NE":
+                    categories["CYS-HIS NE"].append(dist)
+                continue
+
+            if kind_i == "HIS" and kind_j == "HIS":
+                his_i = _his_label(coord_i)
+                his_j = _his_label(coord_j)
+                if his_i == "ND" and his_j == "ND":
+                    categories["HIS ND-HIS ND"].append(dist)
+                elif his_i == "NE" and his_j == "NE":
+                    categories["HIS NE-HIS NE"].append(dist)
+                else:
+                    categories["HIS ND-HIS NE"].append(dist)
+
+    return categories
 
 
 def his_coordination_atom_counts(
@@ -1378,6 +1804,7 @@ def plot_overlay_histogram(
     labeled_series = [
         (data, _format_mean_label(label, data) if include_series_mean else label, color)
         for data, label, color in zip(series, labels, colors)
+        if data
     ]
     items = list(labeled_series)
     # Draw non-yellow first, then yellow on top to avoid washout.
@@ -1559,6 +1986,204 @@ def plot_coord_atom_count_histogram(
     try:
         fig.savefig(out_path, dpi=200)
         print(f"Saved histogram PNG: {out_path}")
+    except Exception as e:
+        print(f"Failed to save PNG '{out_path}': {e}")
+
+    if show_plot:
+        plt.show()
+
+
+def plot_ca_volume_vs_coord_distance_scatter(
+    volumes: List[float],
+    distances: List[float],
+    mean_volumes: List[float],
+    mean_distances: List[float],
+    *,
+    title: str,
+    xlabel: str,
+    ylabel: str,
+    out_png_name: str,
+    show_plot: bool = True,
+) -> None:
+    try:
+        import matplotlib.pyplot as plt
+    except Exception as e:  # pragma: no cover
+        print(
+            "matplotlib is required for the scatter plot. Install it with: pip install matplotlib\n"
+            f"Import error: {e}"
+        )
+        return
+
+    _apply_hist_rcparams(plt)
+
+    if not volumes or not distances:
+        print("No volume/coordination data collected; skipping scatter plot.")
+        return
+
+    if len(volumes) != len(distances):
+        raise SystemExit("Internal error: volume points and distance points are mismatched")
+    if len(mean_volumes) != len(mean_distances):
+        raise SystemExit("Internal error: mean volume points and distance points are mismatched")
+
+    fig, ax = plt.subplots(figsize=(10.5, 6.0))
+    ax.set_axisbelow(True)
+    ax.grid(False)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+
+    ax.scatter(
+        volumes,
+        distances,
+        s=22,
+        c="#B0B0B0",
+        alpha=0.5,
+        edgecolors="none",
+        zorder=4,
+    )
+    ax.scatter(
+        mean_volumes,
+        mean_distances,
+        s=40,
+        c="#000000",
+        marker=".",
+        zorder=6,
+    )
+
+    plt.title(title)
+    plt.xlabel(xlabel)
+    plt.ylabel(ylabel)
+    plt.tight_layout()
+
+    out_path = Path(out_png_name)
+    if out_path.suffix.lower() != ".png":
+        out_path = out_path.with_suffix(out_path.suffix + ".png") if out_path.suffix else out_path.with_suffix(".png")
+    if not out_path.is_absolute():
+        out_path = Path.cwd() / out_path
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        fig.savefig(out_path, dpi=200)
+        print(f"Saved scatter PNG: {out_path}")
+    except Exception as e:
+        print(f"Failed to save PNG '{out_path}': {e}")
+
+    if show_plot:
+        plt.show()
+
+
+def plot_ca_volume_vs_coord_distance_scatter_by_sequence(
+    volumes: List[float],
+    distances: List[float],
+    mean_volumes: List[float],
+    mean_distances: List[float],
+    mean_sequences: List[str],
+    mean_sequences_plain: List[str],
+    sequence_counts: Counter[str],
+    *,
+    title: str,
+    xlabel: str,
+    ylabel: str,
+    out_png_name: str,
+    show_plot: bool = True,
+) -> None:
+    try:
+        import matplotlib.pyplot as plt
+    except Exception as e:  # pragma: no cover
+        print(
+            "matplotlib is required for the scatter plot. Install it with: pip install matplotlib\n"
+            f"Import error: {e}"
+        )
+        return
+
+    _apply_hist_rcparams(plt)
+
+    if not volumes or not distances:
+        print("No volume/coordination data collected; skipping scatter plot.")
+        return
+
+    if len(volumes) != len(distances):
+        raise SystemExit("Internal error: volume points and distance points are mismatched")
+    if len(mean_volumes) != len(mean_distances):
+        raise SystemExit("Internal error: mean volume points and distance points are mismatched")
+    if len(mean_volumes) != len(mean_sequences):
+        raise SystemExit("Internal error: mean volume points and sequences are mismatched")
+    if len(mean_volumes) != len(mean_sequences_plain):
+        raise SystemExit("Internal error: mean volume points and plain sequences are mismatched")
+
+    fig, ax = plt.subplots(figsize=(10.5, 6.0))
+    ax.set_axisbelow(True)
+    ax.grid(False)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+
+    ax.scatter(
+        volumes,
+        distances,
+        s=22,
+        c="#B0B0B0",
+        alpha=0.5,
+        edgecolors="none",
+        zorder=4,
+    )
+
+    if mean_volumes and mean_distances:
+        unique_sequences = sorted(set(mean_sequences))
+        plain_by_latex: Dict[str, str] = {}
+        for latex_seq, plain_seq in zip(mean_sequences, mean_sequences_plain):
+            plain_by_latex.setdefault(latex_seq, plain_seq)
+        cmap = plt.get_cmap("tab20")
+        color_by_sequence = {
+            seq: cmap(idx % cmap.N) for idx, seq in enumerate(unique_sequences)
+        }
+        for vol_mean, dist_mean, seq in zip(mean_volumes, mean_distances, mean_sequences):
+            ax.scatter(
+                [vol_mean],
+                [dist_mean],
+                s=32,
+                c=[color_by_sequence[seq]],
+                marker="o",
+                edgecolors="none",
+                alpha=0.8,
+                zorder=6,
+            )
+        if unique_sequences:
+            handles = [
+                ax.scatter(
+                    [],
+                    [],
+                    s=32,
+                    c=[color_by_sequence[seq]],
+                    marker="o",
+                    edgecolors="none",
+                    alpha=0.8,
+                    label=f"{seq} - {sequence_counts.get(plain_by_latex.get(seq, ""), 0)}",
+                )
+                for seq in unique_sequences
+            ]
+            ax.legend(
+                handles=handles,
+                title="Sequence",
+                loc="center left",
+                bbox_to_anchor=(1.02, 0.5),
+                frameon=True,
+                framealpha=0.9,
+                title_fontsize=16,
+                fontsize=11,
+            )
+
+    plt.title(title)
+    plt.xlabel(xlabel)
+    plt.ylabel(ylabel)
+    plt.tight_layout()
+
+    out_path = Path(out_png_name)
+    if out_path.suffix.lower() != ".png":
+        out_path = out_path.with_suffix(out_path.suffix + ".png") if out_path.suffix else out_path.with_suffix(".png")
+    if not out_path.is_absolute():
+        out_path = Path.cwd() / out_path
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        fig.savefig(out_path, dpi=200)
+        print(f"Saved scatter PNG: {out_path}")
     except Exception as e:
         print(f"Failed to save PNG '{out_path}': {e}")
 
@@ -2732,17 +3357,6 @@ def _build_metric_specs() -> List[MetricSpec]:
             bins=17,
             unit="Å",
         ),
-        MetricSpec(
-            key="ca_ca_seed",
-            compute=ca_to_ca_distances_from_seed,
-            expected_per_file=1,
-            title="Cα → Cα distances",
-            xlabel="Distance between Cα atoms (Å)",
-            out_png_name="Figures/ca_ca_seed_distances_histogram.png",
-            color="#D3D3D3",
-            bins=20,
-            unit="Å",
-        ),
     ]
 
 
@@ -2862,6 +3476,21 @@ def run_check_mode(
     his_zn_cg_ca_ne2_dihedrals: List[float] = []
     his_coord_nd1_counts: List[int] = []
     his_coord_ne2_counts: List[int] = []
+    ca_ca_category_dists: Dict[str, List[float]] = {
+        "CYS-CYS": [],
+        "CYS-HIS ND": [],
+        "CYS-HIS NE": [],
+        "HIS ND-HIS ND": [],
+        "HIS ND-HIS NE": [],
+        "HIS NE-HIS NE": [],
+    }
+    ca_volume_points: List[float] = []
+    ca_coord_distance_points: List[float] = []
+    ca_volume_means: List[float] = []
+    ca_coord_distance_means: List[float] = []
+    ca_sequence_labels: List[str] = []
+    ca_sequence_labels_plain: List[str] = []
+    sequence_counts: Counter[str] = Counter()
 
     reference_metrics: Dict[str, List[float]] | None = None
     reference_label: str | None = None
@@ -3057,6 +3686,10 @@ def run_check_mode(
         atoms = parse_xyz_atoms(p)
         atoms_by_path[p] = atoms
 
+        seq_plain = _sequence_distance_from_atoms(atoms, use_latex=False)
+        if seq_plain:
+            sequence_counts[seq_plain] += 1
+
         cys_count = count_cys_sg_residues(atoms)
         his_count = count_his_coord_residues(atoms)
 
@@ -3103,6 +3736,23 @@ def run_check_mode(
             nd1_count, ne2_count = his_coordination_atom_counts(atoms, max_atoms=4)
             his_coord_nd1_counts.append(nd1_count)
             his_coord_ne2_counts.append(ne2_count)
+
+        ca_ca_by_cat = ca_ca_distances_by_category(atoms, max_residues=4)
+        for key, values in ca_ca_by_cat.items():
+            if key in ca_ca_category_dists:
+                ca_ca_category_dists[key].extend(values)
+
+        volume, coord_dists = ca_volume_and_coord_distances(atoms, max_residues=4)
+        if volume is not None and len(coord_dists) == 4:
+            ca_volume_points.extend([volume] * len(coord_dists))
+            ca_coord_distance_points.extend(coord_dists)
+            ca_volume_means.append(volume)
+            mean_coord = float(np.mean(coord_dists))
+            ca_coord_distance_means.append(mean_coord)
+            seq_text = _sequence_distance_from_atoms(atoms, use_latex=True)
+            if seq_text:
+                ca_sequence_labels.append(seq_text)
+                ca_sequence_labels_plain.append(seq_plain)
 
         n = count_cys_residues_with_ca_cb_sg(atoms)
         if n != 4:
@@ -3213,7 +3863,7 @@ def run_check_mode(
                 output_dir,
                 system_label,
             ),
-            bins=75,
+            bins=30,
             unit="Å",
             x_range=(2.0, 2.25),
             bar_alpha=0.5,
@@ -3482,6 +4132,78 @@ def run_check_mode(
             else None,
             show_plot=show_plots,
         )
+
+    if any(ca_ca_category_dists.values()):
+        ca_ca_labels = [
+            "CYS-CYS",
+            "CYS-HIS Nδ",
+            "CYS-HIS Nε",
+            "HIS Nδ-HIS Nδ",
+            "HIS Nδ-HIS Nε",
+            "HIS Nε-HIS Nε",
+        ]
+        ca_ca_series = [
+            ca_ca_category_dists["CYS-CYS"],
+            ca_ca_category_dists["CYS-HIS ND"],
+            ca_ca_category_dists["CYS-HIS NE"],
+            ca_ca_category_dists["HIS ND-HIS ND"],
+            ca_ca_category_dists["HIS ND-HIS NE"],
+            ca_ca_category_dists["HIS NE-HIS NE"],
+        ]
+        ca_ca_colors = [PALETTE[3], PALETTE[0], PALETTE[1], PALETTE[6], PALETTE[2], PALETTE[4]]
+        plot_overlay_histogram(
+            ca_ca_series,
+            ca_ca_labels,
+            ca_ca_colors,
+            title="CA-CA pairwise distances by coordination type",
+            xlabel="Distance between CA atoms (Å)",
+            out_png_name=_output_png_path(
+                "Figures/ca_ca_pairwise_distances_histogram.png",
+                output_dir,
+                system_label,
+            ),
+            bins=20,
+            unit="Å",
+            bar_alpha=0.5,
+            include_series_mean=False,
+            include_reference_mean=False,
+            show_plot=show_plots,
+        )
+    if ca_volume_points and ca_coord_distance_points:
+        plot_ca_volume_vs_coord_distance_scatter(
+            ca_volume_points,
+            ca_coord_distance_points,
+            ca_volume_means,
+            ca_coord_distance_means,
+            title="CA volume vs fist shell distance",
+            xlabel="CA tetrahedron volume (Å^3)",
+            ylabel="Zn → coordinating atom distance (Å)",
+            out_png_name=_output_png_path(
+                "Figures/ca_volume_vs_coord_distance_scatter.png",
+                output_dir,
+                system_label,
+            ),
+            show_plot=show_plots,
+        )
+        if ca_volume_means and ca_coord_distance_means and ca_sequence_labels:
+            plot_ca_volume_vs_coord_distance_scatter_by_sequence(
+                ca_volume_points,
+                ca_coord_distance_points,
+                ca_volume_means,
+                ca_coord_distance_means,
+                ca_sequence_labels,
+                ca_sequence_labels_plain,
+                sequence_counts,
+                title="CA volume vs fist shell distance (by sequence)",
+                xlabel="CA tetrahedron volume (Å^3)",
+                ylabel="Zn → coordinating atom distance (Å)",
+                out_png_name=_output_png_path(
+                    "Figures/ca_volume_vs_coord_distance_scatter_by_sequence.png",
+                    output_dir,
+                    system_label,
+                ),
+                show_plot=show_plots,
+            )
     if open_html and generate_outlier_html:
         print(f"Opened {min(num_open, max_open)}/{len(outliers)} HTML files (max {max_open}).")
 
@@ -3553,6 +4275,16 @@ def run_directory_mode(
         return
 
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    write_sequence_distance_file(
+        all_xyz,
+        output_dir=output_dir,
+        system_label=system_label,
+    )
+    write_family_struct_examples(
+        all_xyz,
+        output_dir=output_dir,
+    )
 
     run_check_mode(
         xyz_dir,

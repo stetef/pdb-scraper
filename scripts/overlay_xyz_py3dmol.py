@@ -6,6 +6,11 @@ Usage:
     --input macchiato_downloads \
     --output macchiato_downloads/overlay.html
 
+    python scripts/overlay_xyz_py3dmol.py \
+        --input-file path/to/a.xyz --label "Structure A" \
+        --input-file path/to/b.xyz --label "Structure B" \
+        --output overlay.html
+
 Notes:
 - Requires py3Dmol (pip install py3Dmol)
 - Hover labels show the XYZ filename on atoms.
@@ -56,9 +61,13 @@ def parse_ca_coords_from_xyz(xyz_text: str) -> list[tuple[float, float, float]]:
     return coords
 
 
-def build_viewer(xyz_files: list[Path], width: int, height: int) -> py3Dmol.view:
+def build_viewer(
+    xyz_files: list[Path],
+    hover_labels: list[str],
+    width: int,
+    height: int,
+) -> py3Dmol.view:
     view = py3Dmol.view(width=width, height=height)
-    names = [p.name for p in xyz_files]
     ca_coords: list[tuple[float, float, float]] = []
 
     for idx, xyz_path in enumerate(xyz_files):
@@ -88,7 +97,7 @@ def build_viewer(xyz_files: list[Path], width: int, height: int) -> py3Dmol.view
                 }
             )
 
-    names_json = json.dumps(names)
+    names_json = json.dumps(hover_labels)
     view.setHoverable(
         {},
         True,
@@ -102,7 +111,7 @@ def build_viewer(xyz_files: list[Path], width: int, height: int) -> py3Dmol.view
 
 
 def wrap_html_with_hover_bar(html: str) -> str:
-    bar_html = "<div id=\"hover-bar\">Hover over a structure to see its file name</div>"
+    bar_html = "<div id=\"hover-bar\">Hover over a structure to see its label</div>"
     style_block = (
         "<style>"
         "body{margin:0;padding-top:44px;font-family:Arial,Helvetica,sans-serif;}"
@@ -132,8 +141,21 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--input",
         "-i",
-        required=True,
         help="Directory containing .xyz files",
+    )
+    parser.add_argument(
+        "--input-file",
+        "-f",
+        action="append",
+        default=[],
+        help="Path to an individual .xyz file (can be provided multiple times)",
+    )
+    parser.add_argument(
+        "--label",
+        "-l",
+        action="append",
+        default=[],
+        help="Hover label for each --input-file (must match count when provided)",
     )
     parser.add_argument(
         "--output",
@@ -148,17 +170,48 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    input_dir = Path(args.input)
     output_path = Path(args.output)
 
-    if not input_dir.exists() or not input_dir.is_dir():
-        raise SystemExit(f"Input directory not found: {input_dir}")
+    xyz_files: list[Path] = []
+    hover_labels: list[str] = []
 
-    xyz_files = sorted(input_dir.glob("*.xyz"))
+    if args.input_file:
+        xyz_files = [Path(p) for p in args.input_file]
+        for xyz_path in xyz_files:
+            if not xyz_path.exists() or not xyz_path.is_file():
+                raise SystemExit(f"Input file not found: {xyz_path}")
+
+        if args.label and len(args.label) != len(xyz_files):
+            raise SystemExit(
+                "When using --label, provide exactly one label for each --input-file."
+            )
+
+        hover_labels = args.label if args.label else [p.name for p in xyz_files]
+    elif args.input:
+        input_dir = Path(args.input)
+        if not input_dir.exists() or not input_dir.is_dir():
+            raise SystemExit(f"Input directory not found: {input_dir}")
+
+        xyz_files = list(input_dir.glob("*.xyz"))
+        subdirs = [p for p in input_dir.iterdir() if p.is_dir()]
+        for subdir in subdirs:
+            xyz_files.extend(subdir.glob("*.xyz"))
+        xyz_files = sorted(set(xyz_files))
+        hover_labels = [p.name for p in xyz_files]
+    else:
+        raise SystemExit("Provide either --input directory or one/more --input-file values.")
+
     if not xyz_files:
-        raise SystemExit(f"No .xyz files found in {input_dir}")
+        if args.input:
+            raise SystemExit(f"No .xyz files found in {args.input}")
+        raise SystemExit("No .xyz input files were provided.")
 
-    view = build_viewer(xyz_files, width=args.width, height=args.height)
+    view = build_viewer(
+        xyz_files,
+        hover_labels=hover_labels,
+        width=args.width,
+        height=args.height,
+    )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     html = wrap_html_with_hover_bar(view._make_html())
     output_path.write_text(html, encoding="utf-8")
