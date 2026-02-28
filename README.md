@@ -150,31 +150,30 @@ search_parameters:
   experimental_method: "X-RAY DIFFRACTION"
   polymer_type: null  # null := all; or use "polypeptide(L)"
 
+
 processing:
-  batch_size: 10
+  batch_size: 50
   parallel_workers: 4
   rate_limit_delay: 0.1
-  temp_directory: "./data/PDB-downloads"
   max_downloads: 30
   cutoff: 3.0
-  selection_radius: 6.0
+  selection_radius: 4.0
   target: "ZN"
   metals_excluded: []
-  must_have: "S>=4"
-  include_waters: true
+  must_have: "N>=4"  # change for different ligand reqs
+  include_waters: false
 
 output:
-  results_database: "./data/results/summary.db"
-  checkpoint_file: "./data/results/checkpoint.db"
-  log_file: "./data/pipeline.log"
+  base_output_dir: "./data/4his"
   save_matching_structures: true
-  matched_structures_dir: "./data/results/validated_structures"
-  output_dir: "./data/output"
 
 validation:
-  coordination_distance_max: 2.8
   coordination_distance_min: 2.0
-  coord: "4S"
+  coordination_distance_max: 3.2
+  ligand_requirements:  # change for different ligand reqs
+    - resname: HIS
+      atom_names: [ND1, NE2]
+      count: 4
 
 # Enable search mode
 input_mode: "search"
