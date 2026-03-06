@@ -1,68 +1,36 @@
-# Example search-mode config for PDB Scraper
-#
-# Common fields to customize:
-# - search_parameters:
-#     metal_ion: target metal
-#       e.g., "ZN", "FE", "MG"
-#     resolution_cutoff: max resolution (Å)
-#       lower = higher quality
-#     experimental_method: method filter
-#       e.g., "X-RAY DIFFRACTION" or "ALL"
-#     polymer_type: RCSB polymer filter
-#       e.g., "polypeptide(L)"
-#       Set to null for all types
-# - processing:
-#     batch_size: structures per batch
-#     parallel_workers: concurrent workers
-#     rate_limit_delay: API delay (sec)
-#     temp_directory: CIF download location
-#     cutoff/target/must_have/include_waters:
-#       clustering parameters
-# - output:
-#     save_matching_structures: bool (keep pdb files)
-#     output_dir: results output dir
-# - validation:
-#     coordination_distance_min/max: ranges
-#     ligand_requirements: list of ligand criteria
-#      incl. resname, atom_names, count
-# - input_mode:
-#     "search" for query-driven discovery
-
 search_parameters:
   metal_ion: "ZN"
-  resolution_cutoff: 2.0  #angstroms
+  # resolution_cutoff: 2.0
   experimental_method: "X-RAY DIFFRACTION"
-  polymer_type: null  # null := all; or use "polypeptide(L)"
-
+  polymer_type: null 
 
 processing:
-  batch_size: 50
+  batch_size: 75
   parallel_workers: 4
   rate_limit_delay: 0.1
-  max_downloads: 30
-  cutoff: 3.0
-  selection_radius: 4.0
+  max_downloads: 1500
+  cutoff: 2.6
+  selection_radius: 3.5
   target: "ZN"
   metals_excluded: []
-  must_have: "N>=4"  # change for different ligand reqs
+  must_have: "S>=2,N>=2"  # change for different ligand reqs
   include_waters: false
 
 output:
-  base_output_dir: "./data/4his"
+  base_output_dir: "./data/exp-compare/"
   save_matching_structures: true
 
 validation:
   coordination_distance_min: 2.0
   coordination_distance_max: 3.2
   ligand_requirements:  # change for different ligand reqs
+    - resname: CYS
+      atom_names: [SG]
+      count: 2
     - resname: HIS
       atom_names: [ND1, NE2]
-      count: 4
-
-# Enable search mode
-# input_mode: "search"
-# log_level: "INFO"
+      count: 2
 
 input_mode: "list_file"
-input_data: ["4his-ids.txt"] # List of PDB IDs or path to file with IDs
+input_data: ["exp-ids.txt"]
 log_level: "INFO"

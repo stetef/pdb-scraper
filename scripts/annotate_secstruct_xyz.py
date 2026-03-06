@@ -99,12 +99,8 @@ def annotate_xyz_with_secstruct(xyz_path: Path) -> bool:
     if not xyz_path.exists():
         raise SystemExit(f"XYZ file not found: {xyz_path}")
 
-    pdb_path = _resolve_pdb_for_xyz(xyz_path)
-    if not pdb_path.exists():
-        print(f"Warning: PDB not found for {xyz_path.name}: {pdb_path}", file=sys.stderr)
-        return False
 
-    secstruct = parse_pdb_secondary_structure(pdb_path)
+    pdb_path = _resolve_pdb_for_xyz(xyz_path)
     lines = xyz_path.read_text(encoding="utf-8").splitlines()
     if len(lines) < 3:
         raise SystemExit(f"XYZ file too short: {xyz_path}")
@@ -113,23 +109,48 @@ def annotate_xyz_with_secstruct(xyz_path: Path) -> bool:
     body = lines[2:]
     updated_body: List[str] = []
 
+    if not pdb_path.exists():
+        print(f"Warning: PDB not found for {xyz_path.name}: {pdb_path}", file=sys.stderr)
+        # Annotate all CA atoms with SEC=XXXX
+        for line in body:
+            stripped = line.strip()
+            if not stripped:
+                updated_body.append(line)
+                continue
+            if "#" in stripped:
+                left, right = stripped.split("#", 1)
+                comment = right.strip()
+            else:
+                left, comment = stripped, ""
+            parts = left.split()
+            if len(parts) < 4:
+                updated_body.append(line)
+                continue
+            meta = _meta_dict(_parse_meta_tokens(comment))
+            if meta.get("ATOM") == "CA" and "RESSEQ" in meta and "CHAIN" in meta:
+                comment = _update_comment_with_secstruct(comment, "XXXX")
+            if comment:
+                updated_body.append(f"{left.strip()}  # {comment}")
+            else:
+                updated_body.append(left.strip())
+        xyz_path.write_text("\n".join(header + updated_body) + "\n", encoding="utf-8")
+        return True
+
+    secstruct = parse_pdb_secondary_structure(pdb_path)
     for line in body:
         stripped = line.strip()
         if not stripped:
             updated_body.append(line)
             continue
-
         if "#" in stripped:
             left, right = stripped.split("#", 1)
             comment = right.strip()
         else:
             left, comment = stripped, ""
-
         parts = left.split()
         if len(parts) < 4:
             updated_body.append(line)
             continue
-
         meta = _meta_dict(_parse_meta_tokens(comment))
         if meta.get("ATOM") == "CA" and "RESSEQ" in meta and "CHAIN" in meta:
             resseq = _parse_int(meta.get("RESSEQ", ""))
@@ -137,12 +158,10 @@ def annotate_xyz_with_secstruct(xyz_path: Path) -> bool:
             if resseq is not None and chain:
                 sec = determine_secondary_structure(secstruct, chain, resseq)
                 comment = _update_comment_with_secstruct(comment, sec)
-
         if comment:
             updated_body.append(f"{left.strip()}  # {comment}")
         else:
             updated_body.append(left.strip())
-
     xyz_path.write_text("\n".join(header + updated_body) + "\n", encoding="utf-8")
     return True
 
