@@ -32,7 +32,7 @@ def read_chik_k_chi(file_path: Path) -> tuple[np.ndarray, np.ndarray]:
 
     return np.asarray(k_vals), np.asarray(chi_vals)
 
-def xftf_larch(k, chi, kmin, kmax, dk, kweight, kstep, rmax_out):
+def xftf_larch(k, chi, kmin, kmax, dk, kweight, kstep, rmax_out, window):
     grp = Group()
     grp.k = k
     grp.chi = chi
@@ -45,7 +45,7 @@ def xftf_larch(k, chi, kmin, kmax, dk, kweight, kstep, rmax_out):
         kweight=kweight,
         kstep=kstep,
         rmax_out=rmax_out,
-        window="hanning",
+        window=window,
         group=grp,
     )
     return grp.r, grp.chir
@@ -65,10 +65,11 @@ def build_parser():
     )
     parser.add_argument("--kmin", type=float, default=3.0)
     parser.add_argument("--kmax", type=float, default=11.0)
-    parser.add_argument("--dk", type=float, default=1.0)
+    parser.add_argument("--dk", type=float, default=3.0)
     parser.add_argument("--kweight", type=int, default=2)
     parser.add_argument("--kstep", type=float, default=0.05)
     parser.add_argument("--rmax", type=float, default=6.0)
+    parser.add_argument("--window", type=str, default="kaiser")
     return parser
 
 
@@ -87,6 +88,7 @@ def main() -> int:
             kweight=args.kweight,
             kstep=args.kstep,
             rmax_out=args.rmax,
+            window=args.window,
         )
     
     chir_mag = np.abs(chir)

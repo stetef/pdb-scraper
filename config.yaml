@@ -1,7 +1,7 @@
 search_parameters:
   metal_ion: "ZN"
   # resolution_cutoff: 2.0
-  experimental_method: "X-RAY DIFFRACTION"
+  # experimental_method: "X-RAY DIFFRACTION"
   polymer_type: null 
 
 processing:
@@ -17,7 +17,7 @@ processing:
   include_waters: false
 
 output:
-  base_output_dir: "./data/exp-compare/"
+  base_output_dir: "./data/conformer-analysis/"
   save_matching_structures: true
 
 validation:

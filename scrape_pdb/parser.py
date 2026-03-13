@@ -5,6 +5,7 @@ from typing import Optional, Iterable
 from collections import Counter
 import re
 import os
+import tempfile
 from pathlib import Path
 
 from Bio.PDB.MMCIF2Dict import MMCIF2Dict
@@ -31,6 +32,16 @@ import logging
 
 
 logger = logging.getLogger("pipeline.parser")
+
+
+def _format_target_suffix(target: str) -> str:
+    """Format target label for filenames (e.g., ZN -> Zn, NI -> Ni)."""
+    text = (target or "").strip()
+    if not text:
+        return text
+    if len(text) == 1:
+        return text.upper()
+    return text[0].upper() + text[1:].lower()
 
 
 def detect_file_format(path: str) -> str:
@@ -276,7 +287,45 @@ def iter_altloc_metal_records(pdb_path: str, metal_set: set[str]) -> Iterable[At
 # Main per-PDB processor
 # ------------------------------
 
-def process_pdb(
+def _extract_pdb_model_blocks(path: str) -> tuple[list[str], list[list[str]]]:
+    """Return (header_lines, model_blocks) for PDB files with MODEL/ENDMDL records."""
+    header_lines: list[str] = []
+    model_blocks: list[list[str]] = []
+    current_block: list[str] = []
+    saw_model = False
+    in_model = False
+
+    with open(path, "r") as f:
+        for line in f:
+            rec6 = (line[0:6].strip().upper() if len(line) >= 6 else "")
+            if rec6 == "MODEL":
+                saw_model = True
+                if in_model and current_block:
+                    model_blocks.append(current_block)
+                    current_block = []
+                in_model = True
+                continue
+
+            if rec6 == "ENDMDL":
+                if in_model and current_block:
+                    model_blocks.append(current_block)
+                    current_block = []
+                in_model = False
+                continue
+
+            if saw_model:
+                if in_model:
+                    current_block.append(line)
+            else:
+                header_lines.append(line)
+
+    if in_model and current_block:
+        model_blocks.append(current_block)
+
+    return header_lines, model_blocks
+
+
+def _process_single_pdb(
     pdb_path: str,
     config: PipelineConfig
 ) -> tuple[list[str], dict]:
@@ -384,8 +433,9 @@ def process_pdb(
         # For union: neighbors are atoms within selection_radius of ANY center metal
         selected_union = select_neighbors_union(atoms, centers, config.selection_radius)
 
-        # Create a base name common (without altloc tag)
-        base_name_common = f"{base_id}_{target_upper}_{comp_type}_d{config.cutoff:.2f}_cluster{cluster_counter}"
+        # Create a compact base name (without altloc tag)
+        target_suffix = _format_target_suffix(target_upper)
+        base_name_common = f"{base_id}_cluster{cluster_counter}_{target_suffix}"
 
         # ALTLOC splitting around the chosen "center": pick the first target occurrence in this comp
         center_candidates = [m for m in comp_metals if m.atom_name.upper() == target_upper]
@@ -719,3 +769,83 @@ def process_pdb(
             per["seen_resnames_for_atom_names"] = dict(per["seen_resnames_for_atom_names"])
 
     return written_paths, stats
+
+
+def process_pdb(
+    pdb_path: str,
+    config: PipelineConfig
+) -> tuple[list[str], dict]:
+    """Process a PDB/CIF file, including all conformers in multi-model PDB files."""
+    base_id = os.path.splitext(os.path.basename(pdb_path))[0]
+
+    if detect_file_format(pdb_path) != "pdb":
+        return _process_single_pdb(pdb_path, config)
+
+    try:
+        header_lines, model_blocks = _extract_pdb_model_blocks(pdb_path)
+    except Exception:
+        # Fall back to the original behavior if model extraction fails.
+        return _process_single_pdb(pdb_path, config)
+
+    if len(model_blocks) <= 1:
+        return _process_single_pdb(pdb_path, config)
+
+    logger.info(f"[i] Detected {len(model_blocks)} conformers in {base_id}; processing each MODEL block.")
+
+    all_written: list[str] = []
+    agg_stats: dict = {
+        "pdb_id": base_id,
+        "rejections": Counter(),
+        "ligand_requirements": None,
+        "rejected_cn_distribution": Counter(),
+        "rejected_coord_distribution": Counter(),
+    }
+
+    with tempfile.TemporaryDirectory(prefix=f"{base_id}_models_") as tmpdir:
+        for conf_idx, model_lines in enumerate(model_blocks, start=1):
+            conformer_id = f"{base_id}_conformer{conf_idx}"
+            conformer_path = Path(tmpdir) / f"{conformer_id}.pdb"
+            conformer_path.write_text("".join(header_lines + model_lines + ["END\n"]))
+
+            written, stats = _process_single_pdb(str(conformer_path), config)
+            all_written.extend(written)
+
+            for k, v in (stats.get("rejections") or {}).items():
+                agg_stats["rejections"][str(k)] += int(v)
+            for cn, count in (stats.get("rejected_cn_distribution") or {}).items():
+                agg_stats["rejected_cn_distribution"][int(cn)] += int(count)
+            for coord, count in (stats.get("rejected_coord_distribution") or {}).items():
+                agg_stats["rejected_coord_distribution"][str(coord)] += int(count)
+
+            if stats.get("ligand_requirements"):
+                per_req = stats["ligand_requirements"].get("per_req") or []
+                if agg_stats.get("ligand_requirements") is None:
+                    agg_stats["ligand_requirements"] = {
+                        "per_req": [
+                            {
+                                "missing": 0,
+                                "naming_mismatch": 0,
+                                "seen_resnames_for_atom_names": Counter(),
+                            }
+                            for _ in per_req
+                        ]
+                    }
+
+                for i, req_stats in enumerate(per_req):
+                    if i >= len(agg_stats["ligand_requirements"]["per_req"]):
+                        break
+                    merged = agg_stats["ligand_requirements"]["per_req"][i]
+                    merged["missing"] += int(req_stats.get("missing", 0))
+                    merged["naming_mismatch"] += int(req_stats.get("naming_mismatch", 0))
+                    merged["seen_resnames_for_atom_names"].update(
+                        req_stats.get("seen_resnames_for_atom_names", {})
+                    )
+
+    agg_stats["rejections"] = dict(agg_stats["rejections"])
+    agg_stats["rejected_cn_distribution"] = dict(agg_stats["rejected_cn_distribution"])
+    agg_stats["rejected_coord_distribution"] = dict(agg_stats["rejected_coord_distribution"])
+    if agg_stats.get("ligand_requirements"):
+        for per in agg_stats["ligand_requirements"]["per_req"]:
+            per["seen_resnames_for_atom_names"] = dict(per["seen_resnames_for_atom_names"])
+
+    return all_written, agg_stats

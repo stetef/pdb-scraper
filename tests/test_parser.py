@@ -106,3 +106,68 @@ def test_load_cif_atoms_all_monkeypatch(monkeypatch, tmp_path):
     atoms = parser.load_cif_atoms_all(str(p))
     assert isinstance(atoms, list)
     assert any(a.element.upper() in ("ZN","N") for a in atoms)
+
+
+def test_extract_pdb_model_blocks_handles_unlabeled_model_records(tmp_path):
+    pdb = tmp_path / "models.pdb"
+    pdb.write_text(
+        "REMARK   2 RESOLUTION.    2.00 ANGSTROM.\n"
+        "MODEL        1\n"
+        "ATOM      1  N   GLY A   1       0.000   0.000   0.000  1.00 10.00           N\n"
+        "ENDMDL\n"
+        "MODEL\n"
+        "ATOM      2  N   GLY A   1       1.000   0.000   0.000  1.00 10.00           N\n"
+        "ENDMDL\n"
+        "END\n"
+    )
+
+    header, blocks = parser._extract_pdb_model_blocks(str(pdb))
+    assert len(blocks) == 2
+    assert any("RESOLUTION" in line for line in header)
+    assert "ATOM" in blocks[0][0]
+    assert "ATOM" in blocks[1][0]
+
+
+def test_process_pdb_multi_model_adds_conformer_suffix(monkeypatch, tmp_path):
+    pdb = tmp_path / "2lce.pdb"
+    pdb.write_text(
+        "REMARK   2 RESOLUTION.    2.00 ANGSTROM.\n"
+        "MODEL        1\n"
+        "ATOM      1  N   GLY A   1       0.000   0.000   0.000  1.00 10.00           N\n"
+        "ENDMDL\n"
+        "MODEL        2\n"
+        "ATOM      2  N   GLY A   1       1.000   0.000   0.000  1.00 10.00           N\n"
+        "ENDMDL\n"
+        "END\n"
+    )
+
+    seen_stems: list[str] = []
+
+    def fake_single(pdb_path, config):
+        stem = Path(pdb_path).stem
+        seen_stems.append(stem)
+        return [f"/tmp/{stem}_cluster1.xyz"], {
+            "pdb_id": stem,
+            "rejections": {"must_have": 1},
+            "ligand_requirements": None,
+            "rejected_cn_distribution": {4: 1},
+            "rejected_coord_distribution": {"2N2S": 1},
+        }
+
+    monkeypatch.setattr(parser, "_process_single_pdb", fake_single)
+
+    class DummyConfig:
+        pass
+
+    written, stats = parser.process_pdb(str(pdb), DummyConfig())
+
+    assert seen_stems == ["2lce_conformer1", "2lce_conformer2"]
+    assert all("_conformer" in p for p in written)
+    assert stats["pdb_id"] == "2lce"
+    assert stats["rejections"]["must_have"] == 2
+
+
+def test_format_target_suffix_for_xyz_name():
+    assert parser._format_target_suffix("ZN") == "Zn"
+    assert parser._format_target_suffix("ni") == "Ni"
+    assert parser._format_target_suffix("C") == "C"

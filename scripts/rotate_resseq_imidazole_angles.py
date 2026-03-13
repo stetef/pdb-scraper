@@ -733,7 +733,7 @@ def main() -> None:
             f"-gamma-{_format_angle_for_path(gamma_i)}"
         )
         if base_xyz is None:
-            out_xyz = in_path.with_name(f"{in_path.stem}-resseq{args.resseq}{angle_suffix_i}-rotated.xyz")
+            out_xyz = in_path.with_name(f"{in_path.stem}-resseq{args.resseq}{angle_suffix_i}.xyz")
         else:
             stem = base_xyz.stem
             suffix = base_xyz.suffix if base_xyz.suffix else ".xyz"

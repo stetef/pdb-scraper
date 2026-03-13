@@ -20,6 +20,8 @@ import argparse
 import itertools
 import math
 import re
+import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -176,6 +178,149 @@ def _load_r_chir_mag(path: Path) -> tuple[np.ndarray, np.ndarray]:
     return np.asarray(r_vals), np.asarray(chir_mag_vals)
 
 
+def _load_k_chi(path: Path) -> tuple[np.ndarray, np.ndarray]:
+    k_vals: list[float] = []
+    chi_vals: list[float] = []
+
+    with path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+
+            parts = stripped.split()
+            if len(parts) < 2:
+                continue
+
+            try:
+                # FEFF-style exafs-k files often have columns:
+                # omega e k mu mu0 chi [@#]
+                # while generated average files are 2-column: k chi.
+                if len(parts) >= 6:
+                    k_vals.append(float(parts[2]))
+                    chi_vals.append(float(parts[5]))
+                else:
+                    k_vals.append(float(parts[0]))
+                    chi_vals.append(float(parts[1]))
+            except ValueError:
+                continue
+
+    if not k_vals:
+        raise ValueError(f"No numeric chi(k) data found in {path}")
+
+    k_arr = np.asarray(k_vals, dtype=float)
+    chi_arr = np.asarray(chi_vals, dtype=float)
+
+    order = np.argsort(k_arr)
+    k_sorted = k_arr[order]
+    chi_sorted = chi_arr[order]
+
+    # Keep one value per k for robust interpolation.
+    uniq_k, uniq_idx = np.unique(k_sorted, return_index=True)
+    uniq_chi = chi_sorted[uniq_idx]
+    return uniq_k, uniq_chi
+
+
+def _build_avg_exafs_k_chi_r(parent_dir: Path) -> tuple[np.ndarray, np.ndarray] | None:
+    exafs_k_files: list[Path] = []
+    for child_dir in iter_child_dirs(parent_dir):
+        exafs_k_files.extend(sorted(child_dir.glob("exafs-k-*.dat")))
+
+    if not exafs_k_files:
+        return None
+
+    loaded_k_chi: list[tuple[np.ndarray, np.ndarray, Path]] = []
+    for path in exafs_k_files:
+        try:
+            k_vals, chi_vals = _load_k_chi(path)
+        except ValueError as exc:
+            print(f"[skip] exafs-k file {path}: {exc}")
+            continue
+        loaded_k_chi.append((k_vals, chi_vals, path))
+
+    if not loaded_k_chi:
+        return None
+
+    # Regrid all chi(k) traces to a regular spacing to keep point count manageable
+    # for downstream Larch FFT defaults.
+    k_mins = [float(np.min(k_vals)) for k_vals, _, _ in loaded_k_chi]
+    k_maxs = [float(np.max(k_vals)) for k_vals, _, _ in loaded_k_chi]
+    common_k_min = max(k_mins)
+    common_k_max = min(k_maxs)
+
+    # Use an explicit transform window and resample to a compact grid.
+    fft_kmin = 0.0
+    fft_kmax = 13.0
+    fft_dk = 3.0
+    fft_window = "kaiser"
+    common_k_min = max(common_k_min, fft_kmin)
+    common_k_max = min(common_k_max, fft_kmax)
+    if not np.isfinite(common_k_min) or not np.isfinite(common_k_max) or common_k_max <= common_k_min:
+        print("[skip] no overlapping k-range found across exafs-k files")
+        return None
+
+    # Interpolate onto a fixed-size grid to reduce point count in downstream FFT input.
+    target_n_points = 512
+    target_k = np.linspace(common_k_min, common_k_max, num=target_n_points, dtype=float)
+    if target_k.size < 4:
+        print("[skip] overlapping exafs-k range too small after regridding")
+        return None
+
+    aligned = [
+        np.interp(target_k, k_vals, chi_vals)
+        for k_vals, chi_vals, _ in loaded_k_chi
+    ]
+    avg_chi_k = np.mean(np.vstack(aligned), axis=0)
+
+    dir_suffix = parent_dir.name.replace(" ", "")
+    avg_k_path = parent_dir / f"avg_exafs_k-{dir_suffix}.dat"
+    np.savetxt(
+        avg_k_path,
+        np.column_stack([target_k, avg_chi_k]),
+        header="k chi",
+    )
+
+    converter_script = Path("/Users/stetef/Documents/SLAC/pdb-scraper/scripts/chi_k_to_chi_r.py")
+    if not converter_script.exists():
+        print(f"[skip] chi(k)->chi(R) converter not found: {converter_script}")
+        return None
+
+    try:
+        subprocess.run(
+            [
+                sys.executable,
+                str(converter_script),
+                str(avg_k_path),
+                "--kmin",
+                str(fft_kmin),
+                "--kmax",
+                str(fft_kmax),
+                "--dk",
+                str(fft_dk),
+                "--window",
+                fft_window,
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        details = exc.stderr.strip() or exc.stdout.strip() or str(exc)
+        print(f"[skip] failed to convert averaged exafs-k data: {details}")
+        return None
+
+    avg_r_path = avg_k_path.with_name(f"{avg_k_path.stem}_chi_R.dat")
+    if not avg_r_path.exists():
+        print(f"[skip] converted chi(R) file not found: {avg_r_path}")
+        return None
+
+    try:
+        return _load_r_chir_mag(avg_r_path)
+    except ValueError as exc:
+        print(f"[skip] averaged converted chi(R) file {avg_r_path}: {exc}")
+        return None
+
+
 def _normalized_stem(path: Path) -> str:
     stem = path.stem
     for lead in ("chi-R-", "chi_R", "chi-R", "chiR-"):
@@ -183,30 +328,6 @@ def _normalized_stem(path: Path) -> str:
             stem = stem[len(lead) :]
             break
     return stem
-
-
-def _group_data_files(paths: list[Path]) -> list[tuple[str, list[Path], list[str]]]:
-    normalized_by_path: dict[Path, str] = {path: _normalized_stem(path) for path in paths}
-    grouped: dict[str, list[Path]] = {}
-    for path in paths:
-        stem = normalized_by_path[path]
-        prefix, _ = split_prefix_suffix(stem)
-        grouped.setdefault(prefix, []).append(path)
-
-    groups: list[tuple[str, list[Path], list[str]]] = []
-    for prefix in sorted(grouped):
-        paths_for_group = sorted(grouped[prefix], key=lambda p: p.as_posix())
-        display_labels: list[str] = []
-        for path in paths_for_group:
-            stem = normalized_by_path[path]
-            _, suffix = split_prefix_suffix(stem)
-            if suffix:
-                display_labels.append(suffix)
-            else:
-                display_labels.append(r"$C\alpha$ fixed")
-        groups.append((prefix, paths_for_group, display_labels))
-
-    return groups
 
 
 def _extract_id_token(value: str) -> str | None:
@@ -249,33 +370,6 @@ def _exp_legend_label(path: Path) -> str:
     return label
 
 
-def _exp_match_key_from_filename(path: Path) -> str | None:
-    stem = path.stem
-    match = re.match(r"^(.+?)(?:[_-]exp)(?:$|[_-].*)", stem, flags=re.IGNORECASE)
-    if match is not None:
-        key = match.group(1).strip("_-")
-        if key:
-            return key.upper()
-
-    key = _extract_id_token(stem)
-    if key is not None:
-        return key
-    return None
-
-
-def _model_prefix_match_keys(prefix: str) -> set[str]:
-    keys: set[str] = set()
-    id_token = _extract_id_token(prefix)
-    if id_token is not None:
-        keys.add(id_token)
-
-    tokens = [t for t in re.findall(r"[A-Za-z0-9]+", prefix) if t]
-    if any(t.lower() == "cons" for t in tokens):
-        keys.add("CONS")
-
-    return keys
-
-
 def _resolve_exp_data_path(exp_path: Path, parent_dir: Path) -> Path:
     if exp_path.exists():
         return exp_path
@@ -284,15 +378,6 @@ def _resolve_exp_data_path(exp_path: Path, parent_dir: Path) -> Path:
         if candidate.exists():
             return candidate
     return exp_path
-
-
-def _label_color(label: str, fallback_index: int) -> str:
-    if label == "H-only":
-        return "#D3D3D3"
-    if label == r"$C\alpha$ fixed":
-        return "#A7C7E7"
-    fallback_colors = ["black", "#C27BA0", "#76A5AF", "#F6B26B"]
-    return fallback_colors[fallback_index % len(fallback_colors)]
 
 
 def parse_w_dw_xyz(path: Path) -> list[DwTaggedAtom]:
@@ -377,11 +462,7 @@ def suffix_sort_key(suffix: str) -> tuple[int, str]:
 
 def _include_dw_suffix(suffix: str) -> bool:
     normalized = suffix.strip().lower()
-    return normalized in {"", "h-only", "w-n", "h-only-w-n"}
-
-
-def _is_h_only_variant(suffix: str) -> bool:
-    return suffix.strip().lower().startswith("h-only")
+    return normalized == ""
 
 
 def format_prefix_label(prefix: str) -> str:
@@ -560,13 +641,12 @@ def make_plot(
     def _types_for_metric(metric: FileMetrics) -> list[str | None]:
         if not group_by_atom_type:
             return [None]
-        # Combine ND and NE into N
         ordered_types = []
         if "S" in metric.by_atom_type:
             ordered_types.append("S")
-        if any(t in metric.by_atom_type for t in ["ND", "NE", "N"]):
+        if "N" in metric.by_atom_type:
             ordered_types.append("N")
-        extras = sorted(t for t in metric.by_atom_type if t not in {"S", "ND", "NE", "N"})
+        extras = sorted(t for t in metric.by_atom_type if t not in {"S", "N"})
         return ordered_types + extras
 
     def _type_color(atom_type: str | None, species: str) -> str:
@@ -593,13 +673,12 @@ def make_plot(
                 variant_shift = (idx - (n_items - 1) / 2.0) * variant_separation
                 for atom_type in _types_for_metric(m):
                     base_x = m.volume + variant_shift + _type_shift(atom_type)
-                    marker = ">" if _is_h_only_variant(m.suffix) else "o"
                     y_value = _metric_value(m, species, component, atom_type)
                     ax.scatter(
                         base_x,
                         y_value,
                         color=_type_color(atom_type, species),
-                        marker=marker,
+                        marker="o",
                         edgecolors="none",
                         s=145,
                         alpha=0.7,
@@ -623,7 +702,7 @@ def make_plot(
     ordered_metric_lines: list[str] = []
     ordered_metrics = sorted(filtered, key=lambda m: (m.volume, m.prefix, suffix_sort_key(m.suffix)))
     for idx, metric in enumerate(ordered_metrics, start=1):
-        suffix_label = metric.suffix if metric.suffix else r"C$\alpha$ fixed"
+        suffix_label = metric.suffix if metric.suffix else "single point"
         ordered_metric_lines.append(
             f"{idx}. {metric.prefix} [{suffix_label}]\n"
             f"  V={metric.volume:.6f} $\AA^3$"
@@ -710,26 +789,23 @@ def make_plot(
 
     if group_by_atom_type:
         has_s = any("S" in m.by_atom_type for m in filtered)
-        has_n = any(("ND" in m.by_atom_type) or ("NE" in m.by_atom_type) or ("N" in m.by_atom_type) for m in filtered)
+        has_n = any("N" in m.by_atom_type for m in filtered)
         legend_s: list[Line2D] = []
         if has_s:
             legend_s.extend(
                 [
-                    Line2D([0], [0], marker=">", linestyle="", markerfacecolor="#D4A017", markeredgecolor="none", markersize=11, alpha=0.7, label="S, H-only"),
-                    Line2D([0], [0], marker="o", linestyle="", markerfacecolor="#D4A017", markeredgecolor="none", markersize=11, alpha=0.7, label=r"S, C$\alpha$ fixed"),
+                    Line2D([0], [0], marker="o", linestyle="", markerfacecolor="#D4A017", markeredgecolor="none", markersize=11, alpha=0.7, label="S, single point"),
                 ]
             )
         if has_n:
             legend_s.extend(
                 [
-                    Line2D([0], [0], marker=">", linestyle="", markerfacecolor="#1f77b4", markeredgecolor="none", markersize=11, alpha=0.7, label="N, H-only"),
-                    Line2D([0], [0], marker="o", linestyle="", markerfacecolor="#1f77b4", markeredgecolor="none", markersize=11, alpha=0.7, label=r"N, C$\alpha$ fixed"),
+                    Line2D([0], [0], marker="o", linestyle="", markerfacecolor="#1f77b4", markeredgecolor="none", markersize=11, alpha=0.7, label="N, single point"),
                 ]
             )
     else:
         legend_s = [
-            Line2D([0], [0], marker=">", linestyle="", markerfacecolor="#D4A017", markeredgecolor="none", markersize=11, alpha=0.7, label="First shell, H-only"),
-            Line2D([0], [0], marker="o", linestyle="", markerfacecolor="#D4A017", markeredgecolor="none", markersize=11, alpha=0.7, label=r"First shell, C$\alpha$ fixed"),
+            Line2D([0], [0], marker="o", linestyle="", markerfacecolor="#D4A017", markeredgecolor="none", markersize=11, alpha=0.7, label="First shell, single point"),
         ]
 
     if filtered:
@@ -750,7 +826,7 @@ def make_distance_plot(
     atom_type_separation: float,
 ) -> None:
     _apply_plot_rcparams(plt)
-    fig, ax_s = plt.subplots(1, 1, figsize=(9.2, 6.8), sharey=False)
+    fig, ax_s = plt.subplots(1, 1, figsize=(9.2, 5.8), sharey=False)
 
     filtered = [m for m in metrics if _include_dw_suffix(m.suffix)]
     by_prefix: dict[str, list[FileMetrics]] = {}
@@ -767,9 +843,9 @@ def make_distance_plot(
         ordered_types = []
         if "S" in metric.by_atom_type:
             ordered_types.append("S")
-        if any(t in metric.by_atom_type for t in ["ND", "NE", "N"]):
+        if "N" in metric.by_atom_type:
             ordered_types.append("N")
-        extras = sorted(t for t in metric.by_atom_type if t not in {"S", "ND", "NE", "N"})
+        extras = sorted(t for t in metric.by_atom_type if t not in {"S", "N"})
         return ordered_types + extras
 
     def _type_color(atom_type: str | None, species: str) -> str:
@@ -794,17 +870,6 @@ def make_distance_plot(
         if atom_type is None:
             return metric.aggregate_first_distance_dw, metric.aggregate_ca_distance_dw
 
-        if atom_type == "N":
-            first_distance_dw: list[tuple[float, float]] = []
-            ca_distance_dw: list[tuple[float, float]] = []
-            for key in ("N", "ND", "NE"):
-                group = metric.by_atom_type.get(key)
-                if group is None:
-                    continue
-                first_distance_dw.extend(group.first_distance_dw)
-                ca_distance_dw.extend(group.ca_distance_dw)
-            return first_distance_dw, ca_distance_dw
-
         group = metric.by_atom_type.get(atom_type)
         if group is None:
             return [], []
@@ -815,7 +880,6 @@ def make_distance_plot(
         n_items = len(ordered)
         for idx, m in enumerate(ordered):
             variant_shift = (idx - (n_items - 1) / 2.0) * variant_separation
-            marker = ">" if _is_h_only_variant(m.suffix) else "o"
 
             for atom_type in _types_for_metric(m):
                 x_shift = variant_shift + _type_shift(atom_type)
@@ -826,7 +890,7 @@ def make_distance_plot(
                         distance + x_shift,
                         dw,
                         color=_type_color(atom_type, "first"),
-                        marker=marker,
+                        marker="o",
                         edgecolors="none",
                         s=145,
                         alpha=0.7,
@@ -839,26 +903,23 @@ def make_distance_plot(
 
     if group_by_atom_type:
         has_s = any("S" in m.by_atom_type for m in filtered)
-        has_n = any(("ND" in m.by_atom_type) or ("NE" in m.by_atom_type) or ("N" in m.by_atom_type) for m in filtered)
+        has_n = any("N" in m.by_atom_type for m in filtered)
         legend_s: list[Line2D] = []
         if has_s:
             legend_s.extend(
                 [
-                    Line2D([0], [0], marker=">", linestyle="", markerfacecolor="#D4A017", markeredgecolor="none", markersize=11, alpha=0.7, label="S, H-only"),
-                    Line2D([0], [0], marker="o", linestyle="", markerfacecolor="#D4A017", markeredgecolor="none", markersize=11, alpha=0.7, label=r"S, C$\alpha$ fixed"),
+                    Line2D([0], [0], marker="o", linestyle="", markerfacecolor="#D4A017", markeredgecolor="none", markersize=11, alpha=0.7, label="S, single point"),
                 ]
             )
         if has_n:
             legend_s.extend(
                 [
-                    Line2D([0], [0], marker=">", linestyle="", markerfacecolor="#1f77b4", markeredgecolor="none", markersize=11, alpha=0.7, label="N, H-only"),
-                    Line2D([0], [0], marker="o", linestyle="", markerfacecolor="#1f77b4", markeredgecolor="none", markersize=11, alpha=0.7, label=r"N, C$\alpha$ fixed"),
+                    Line2D([0], [0], marker="o", linestyle="", markerfacecolor="#1f77b4", markeredgecolor="none", markersize=11, alpha=0.7, label="N, single point"),
                 ]
             )
     else:
         legend_s = [
-            Line2D([0], [0], marker=">", linestyle="", markerfacecolor="#D4A017", markeredgecolor="none", markersize=11, alpha=0.7, label="First shell, H-only"),
-            Line2D([0], [0], marker="o", linestyle="", markerfacecolor="#D4A017", markeredgecolor="none", markersize=11, alpha=0.7, label=r"First shell, C$\alpha$ fixed"),
+            Line2D([0], [0], marker="o", linestyle="", markerfacecolor="#D4A017", markeredgecolor="none", markersize=11, alpha=0.7, label="First shell, single point"),
         ]
 
     if filtered:
@@ -939,8 +1000,8 @@ def parse_dw(path: Path) -> list[DwAtom]:
     return rows
 
 
-def _parse_first_shell_distances(path: Path) -> list[float]:
-    distances: list[float] = []
+def _parse_first_shell_distances_by_symbol(path: Path) -> dict[str, list[float]]:
+    distances_by_symbol: dict[str, list[float]] = {"S": [], "N": []}
     for line in path.read_text(encoding="utf-8").splitlines():
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
@@ -954,19 +1015,27 @@ def _parse_first_shell_distances(path: Path) -> list[float]:
 
         group = parts[0].strip().lower()
         if group != "nearest":
+            continue
+
+        symbol = parts[1].strip().upper()
+        if symbol.startswith("N"):
+            symbol_key = "N"
+        elif symbol.startswith("S"):
+            symbol_key = "S"
+        else:
             continue
 
         try:
             distance = float(parts[5])
         except ValueError:
             continue
-        distances.append(distance)
+        distances_by_symbol[symbol_key].append(distance)
 
-    return distances
+    return distances_by_symbol
 
 
-def _parse_first_shell_dw_factors(path: Path) -> list[float]:
-    dw_values: list[float] = []
+def _parse_first_shell_dw_factors_by_symbol(path: Path) -> dict[str, list[float]]:
+    dw_values_by_symbol: dict[str, list[float]] = {"S": [], "N": []}
     for line in path.read_text(encoding="utf-8").splitlines():
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
@@ -982,13 +1051,21 @@ def _parse_first_shell_dw_factors(path: Path) -> list[float]:
         if group != "nearest":
             continue
 
+        symbol = parts[1].strip().upper()
+        if symbol.startswith("N"):
+            symbol_key = "N"
+        elif symbol.startswith("S"):
+            symbol_key = "S"
+        else:
+            continue
+
         try:
             dw = float(parts[6])
         except ValueError:
             continue
-        dw_values.append(dw)
+        dw_values_by_symbol[symbol_key].append(dw)
 
-    return dw_values
+    return dw_values_by_symbol
 
 
 def center_on_zn(atoms: list[XyzAtom]) -> list[XyzAtom]:
@@ -1018,133 +1095,20 @@ def _dist2(a: tuple[float, float, float], b: tuple[float, float, float]) -> floa
     return dx * dx + dy * dy + dz * dz
 
 
-def _bond_threshold(symbol_a: str, symbol_b: str) -> float | None:
-    pair = frozenset({symbol_a.upper(), symbol_b.upper()})
-    if pair == frozenset({"C", "C"}):
-        return 1.75
-    if pair == frozenset({"C", "N"}):
-        return 1.62
-    if pair == frozenset({"C", "S"}):
-        return 1.90
-    if pair == frozenset({"C", "H"}):
-        return 1.20
-    if pair == frozenset({"N", "H"}):
-        return 1.15
-    return None
-
-
-def _build_adjacency(atoms: list[XyzAtom]) -> list[set[int]]:
-    adjacency = [set() for _ in atoms]
-    for i, atom_i in enumerate(atoms):
-        for j in range(i + 1, len(atoms)):
-            atom_j = atoms[j]
-            threshold = _bond_threshold(atom_i.symbol, atom_j.symbol)
-            if threshold is None:
-                continue
-            if _dist2((atom_i.x, atom_i.y, atom_i.z), (atom_j.x, atom_j.y, atom_j.z)) <= threshold * threshold:
-                adjacency[i].add(j)
-                adjacency[j].add(i)
-    return adjacency
-
-
-def _classify_ring_nitrogens(centered_atoms: list[XyzAtom]) -> dict[int, str]:
-    adjacency = _build_adjacency(centered_atoms)
-    n_indices = [i for i, atom in enumerate(centered_atoms) if atom.symbol.upper() == "N"]
-    labels: dict[int, str] = {idx: "N" for idx in n_indices}
-
-    c_neighbors_by_n: dict[int, set[int]] = {
-        n_idx: {j for j in adjacency[n_idx] if centered_atoms[j].symbol.upper() == "C"}
-        for n_idx in n_indices
-    }
-
-    for n_idx in n_indices:
-        carbon_neighbors = c_neighbors_by_n[n_idx]
-        if len(carbon_neighbors) < 2:
-            continue
-
-        partner: int | None = None
-        best_score: tuple[int, float] | None = None
-        for other in n_indices:
-            if other == n_idx:
-                continue
-            shared = carbon_neighbors & c_neighbors_by_n[other]
-            if not shared:
-                continue
-            distance_score = _dist2(
-                (centered_atoms[n_idx].x, centered_atoms[n_idx].y, centered_atoms[n_idx].z),
-                (centered_atoms[other].x, centered_atoms[other].y, centered_atoms[other].z),
-            )
-            score = (len(shared), -distance_score)
-            if best_score is None or score > best_score:
-                best_score = score
-                partner = other
-
-        if partner is None:
-            continue
-
-        partner_neighbors = c_neighbors_by_n[partner]
-        shared = carbon_neighbors & partner_neighbors
-        unique = list(carbon_neighbors - shared)
-        probe_carbons = unique if unique else list(carbon_neighbors)
-        ring_carbons = carbon_neighbors | partner_neighbors
-
-        is_nd = False
-        for carbon_idx in probe_carbons:
-            external_carbon_neighbors = [
-                nbr
-                for nbr in adjacency[carbon_idx]
-                if centered_atoms[nbr].symbol.upper() == "C" and nbr not in ring_carbons
-            ]
-            if external_carbon_neighbors:
-                is_nd = True
-                break
-
-        labels[n_idx] = "ND" if is_nd else "NE"
-
-    return labels
-
-
 def _match_first_shell_n_to_labels(
-    path: Path, first_shell_atoms: list[DwTaggedAtom], tolerance: float = 5.0e-3
+    _path: Path, first_shell_atoms: list[DwTaggedAtom], tolerance: float = 5.0e-3
 ) -> list[str]:
-    default_labels = ["N" if atom.symbol.strip().upper() == "N" else atom.symbol.strip().upper() for atom in first_shell_atoms]
-    source_xyz = path.with_name(path.stem.removesuffix("_w_dw") + ".xyz")
-    if not source_xyz.exists():
-        return default_labels
-
-    try:
-        _, original_atoms = parse_xyz(source_xyz)
-        centered_atoms = center_on_zn(original_atoms)
-    except ValueError:
-        return default_labels
-
-    labels_by_n_index = _classify_ring_nitrogens(centered_atoms)
-    available_n_indices = [i for i, a in enumerate(centered_atoms) if a.symbol.upper() == "N"]
-    tol2 = tolerance * tolerance
-
-    output_labels: list[str] = []
+    _ = tolerance
+    labels: list[str] = []
     for atom in first_shell_atoms:
-        atom_symbol = atom.symbol.strip().upper()
-        if atom_symbol != "N":
-            output_labels.append(atom_symbol)
-            continue
-
-        best_i = -1
-        best_d2 = float("inf")
-        for i, n_idx in enumerate(available_n_indices):
-            n_atom = centered_atoms[n_idx]
-            d2 = _dist2((atom.x, atom.y, atom.z), (n_atom.x, n_atom.y, n_atom.z))
-            if d2 < best_d2:
-                best_d2 = d2
-                best_i = i
-
-        if best_i >= 0 and best_d2 <= tol2:
-            matched_n_idx = available_n_indices.pop(best_i)
-            output_labels.append(labels_by_n_index.get(matched_n_idx, "N"))
+        symbol = atom.symbol.strip().upper()
+        if symbol.startswith("N"):
+            labels.append("N")
+        elif symbol.startswith("S"):
+            labels.append("S")
         else:
-            output_labels.append("N")
-
-    return output_labels
+            labels.append(symbol)
+    return labels
 
 
 def match_dw(
@@ -1304,16 +1268,11 @@ def generate_chi_figure(
     if not data_files:
         raise ValueError(f"No chi_R*.dat files found under {parent_dir}")
 
-    exp_by_key: dict[str, list[tuple[Path, np.ndarray, np.ndarray]]] = {}
+    loaded_exp_spectra: list[tuple[str, np.ndarray, np.ndarray]] = []
     for exp_path in exp_data_paths or []:
         resolved_exp_path = _resolve_exp_data_path(exp_path, parent_dir)
         if not resolved_exp_path.exists():
             print(f"[skip] experimental chi(R) file not found: {exp_path}")
-            continue
-
-        exp_key = _exp_match_key_from_filename(resolved_exp_path)
-        if exp_key is None:
-            print(f"[skip] experimental file key could not be parsed from filename: {resolved_exp_path.name}")
             continue
 
         try:
@@ -1322,130 +1281,68 @@ def generate_chi_figure(
             print(f"[skip] experimental chi(R) file {resolved_exp_path}: {exc}")
             continue
 
-        exp_by_key.setdefault(exp_key, []).append((resolved_exp_path, r_vals, chir_mag_vals))
+        loaded_exp_spectra.append((_exp_legend_label(resolved_exp_path), r_vals, chir_mag_vals))
+
+    avg_exafs_k_chi_r = _build_avg_exafs_k_chi_r(parent_dir)
 
     _apply_plot_rcparams(plt)
-    grouped = _group_data_files(data_files)
-    num_groups = len(grouped)
-    total_subplots = num_groups + 3
-    ncols = 3
-    nrows = math.ceil(total_subplots / ncols)
-    base_width = 7.5 if any(len(group_paths) > 3 for _, group_paths, _ in grouped) else 6.0
-    fig_width = base_width * ncols
-    fig_height = 4.5 * nrows
-    fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(fig_width, fig_height))
-    if hasattr(axes, "flat"):
-        axes_list = list(axes.flat)
-    else:
-        axes_list = [axes]
+    fig, (all_ax, avg_ax) = plt.subplots(1, 2, figsize=(13.5, 5.0), sharey=False)
 
-    h_only_series = []
-    ca_fixed_series = []
+    loaded_spectra: list[tuple[np.ndarray, np.ndarray, Path]] = []
+    for data_path in sorted(data_files):
+        try:
+            r_vals, chir_mag_vals = _load_r_chir_mag(data_path)
+        except ValueError as exc:
+            print(f"[skip] {data_path}: {exc}")
+            continue
+        loaded_spectra.append((r_vals, chir_mag_vals, data_path))
 
-    for idx_group, (prefix, group_paths, display_labels) in enumerate(grouped):
-        ax = axes_list[idx_group]
+    if not loaded_spectra:
+        raise ValueError("No valid chi(R) spectra could be loaded.")
+
+    for ax in (all_ax, avg_ax):
         ax.set_axisbelow(True)
         ax.grid(False)
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
-
-        for idx, (data_path, label) in enumerate(zip(group_paths, display_labels)):
-            r_vals, chir_mag_vals = _load_r_chir_mag(data_path)
-            legend_label = label if label else data_path.stem
-            color = _label_color(legend_label, idx)
-            ax.plot(r_vals, chir_mag_vals, label=legend_label, linewidth=3.0, color=color)
-
-            if legend_label == "H-only":
-                h_only_series.append((r_vals, chir_mag_vals))
-            elif legend_label == r"$C\alpha$ fixed":
-                ca_fixed_series.append((r_vals, chir_mag_vals))
-
-        seen_exp_paths: set[Path] = set()
-        for key in _model_prefix_match_keys(prefix):
-            exp_series = exp_by_key.get(key, [])
-            for exp_path, r_vals, chir_mag_vals in exp_series:
-                if exp_path in seen_exp_paths:
-                    continue
-                seen_exp_paths.add(exp_path)
-                ax.plot(
-                    r_vals,
-                    chir_mag_vals,
-                    label=f"exp {_exp_legend_label(exp_path)}",
-                    linewidth=2.5,
-                    color="salmon",
-                    linestyle="-",
-                    alpha=0.9,
-                )
-
-        subplot_title = prefix if prefix else group_paths[0].stem
-        ax.set_title(subplot_title)
         ax.set_xlabel(r"R ($\AA$)")
         ax.set_ylabel(r"$|\chi(R)|$")
         ax.set_xlim(0.0, 6.0)
 
-        if len(group_paths) > 3:
-            ax.legend(loc="center left", bbox_to_anchor=(1.02, 0.5), fontsize=14)
+    for r_vals, chir_mag_vals, _ in loaded_spectra:
+        all_ax.plot(r_vals, chir_mag_vals, color="#808080", linewidth=0.7, alpha=0.8)
+    all_ax.set_title("All spectra")
+
+    # avg_r = loaded_spectra[0][0]
+    # aligned = [np.interp(avg_r, r_vals, chir_mag_vals) for r_vals, chir_mag_vals, _ in loaded_spectra]
+    # avg_chir = np.mean(np.vstack(aligned), axis=0)
+    # avg_ax.plot(avg_r, avg_chir * 0.9, color="black", linewidth=1.8, label="Model average * 0.9")
+
+    if avg_exafs_k_chi_r is not None:
+        avg_k_r, avg_k_chir_mag = avg_exafs_k_chi_r
+        avg_ax.plot(
+            avg_k_r,
+            avg_k_chir_mag,
+            color="#2E8B57",
+            linewidth=2.1,
+            alpha=0.95,
+            label="Avg exafs-k -> chi(R)",
+        )
+
+    for i, (label, r_vals, chir_mag_vals) in enumerate(loaded_exp_spectra):
+        if i % 2 == 1:
+            color = "salmon"
         else:
-            ax.legend(loc="upper right", fontsize=14)
+            color = "#3780C8"
+        avg_ax.plot(r_vals, chir_mag_vals, color=color, linewidth=2.1, alpha=0.95, label=f"{label}")
 
-    h_ax = axes_list[num_groups]
-    h_ax.set_axisbelow(True)
-    h_ax.grid(False)
-    h_ax.spines["top"].set_visible(False)
-    h_ax.spines["right"].set_visible(False)
-    for r_vals, chir_mag_vals in h_only_series:
-        h_ax.plot(r_vals, chir_mag_vals, linewidth=3.0, color="#D3D3D3", alpha=0.7)
-    h_ax.set_title("H-only")
-    h_ax.set_xlabel(r"R ($\AA$)")
-    h_ax.set_ylabel(r"$|\chi(R)|$")
-    h_ax.set_xlim(0.0, 6.0)
+    if loaded_exp_spectra:
+        avg_ax.legend(loc="best", fontsize=12)
 
-    c_ax = axes_list[num_groups + 1]
-    c_ax.set_axisbelow(True)
-    c_ax.grid(False)
-    c_ax.spines["top"].set_visible(False)
-    c_ax.spines["right"].set_visible(False)
-    for r_vals, chir_mag_vals in ca_fixed_series:
-        c_ax.plot(r_vals, chir_mag_vals, linewidth=3.0, color="#A7C7E7", alpha=0.7)
-    c_ax.set_title(r"$C\alpha$ fixed")
-    c_ax.set_xlabel(r"R ($\AA$)")
-    c_ax.set_ylabel(r"$|\chi(R)|$")
-    c_ax.set_xlim(0.0, 6.0)
-
-    exp_ax = axes_list[num_groups + 2]
-    exp_ax.set_axisbelow(True)
-    exp_ax.grid(False)
-    exp_ax.spines["top"].set_visible(False)
-    exp_ax.spines["right"].set_visible(False)
-    seen_exp_labels: set[str] = set()
-    for exp_series in exp_by_key.values():
-        for exp_path, r_vals, chir_mag_vals in exp_series:
-            exp_label = _exp_legend_label(exp_path)
-            if exp_label in seen_exp_labels:
-                label = None
-            else:
-                label = exp_label
-                seen_exp_labels.add(exp_label)
-            exp_ax.plot(
-                r_vals,
-                chir_mag_vals,
-                linewidth=2.8,
-                color="salmon",
-                alpha=0.9,
-                label=label,
-            )
-    exp_ax.set_title("Experimental")
-    exp_ax.set_xlabel(r"R ($\AA$)")
-    exp_ax.set_ylabel(r"$|\chi(R)|$")
-    exp_ax.set_xlim(0.0, 6.0)
-    if seen_exp_labels:
-        exp_ax.legend(loc="best", fontsize=14)
-
-    for ax in axes_list[total_subplots:]:
-        ax.remove()
+    avg_ax.set_title("Average spectrum")
 
     fig.suptitle(parent_dir.name, fontsize=20)
-    fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.96))
+    fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.95))
 
     default_name = f"EXAFS-{parent_dir.name}".replace(" ", "")
     out_path = parent_dir / f"{default_name}.png"
@@ -1455,7 +1352,7 @@ def generate_chi_figure(
 
 
 def generate_first_shell_distance_figure(parent_dir: Path) -> tuple[Path, int]:
-    summaries: list[DwDistanceSummary] = []
+    by_symbol: dict[str, list[tuple[str, list[float]]]] = {"S": [], "N": []}
     skipped = 0
 
     for child_dir in iter_child_dirs(parent_dir):
@@ -1465,75 +1362,44 @@ def generate_first_shell_distance_figure(parent_dir: Path) -> tuple[Path, int]:
             skipped += 1
             continue
 
-        distances = _parse_first_shell_distances(dw_path)
-        if not distances:
+        distances_by_symbol = _parse_first_shell_distances_by_symbol(dw_path)
+        if not distances_by_symbol["S"] and not distances_by_symbol["N"]:
             skipped += 1
-            print(f"[skip] {dw_path}: no first-shell (group=nearest) distances found")
+            print(f"[skip] {dw_path}: no first-shell S/N (group=nearest) distances found")
             continue
 
-        prefix, suffix = split_prefix_suffix(child_dir.name)
-        if "h-only" in suffix.strip().lower():
-            pass
-            # continue
-        summaries.append(
-            DwDistanceSummary(
-                prefix=prefix,
-                suffix=suffix,
-                mean_distance=float(np.mean(distances)),
-                std_distance=float(np.std(distances)),
-                n_points=len(distances),
-                distances=list(distances),
-                source_dir=child_dir,
-            )
-        )
+        label = child_dir.name
+        for symbol in ("S", "N"):
+            if distances_by_symbol[symbol]:
+                by_symbol[symbol].append((label, distances_by_symbol[symbol]))
 
-    if not summaries:
+    if not by_symbol["S"] and not by_symbol["N"]:
         raise ValueError("No first-shell distance summaries could be built from dw*.dat files.")
 
     _apply_plot_rcparams(plt)
-    by_prefix: dict[str, list[DwDistanceSummary]] = {}
-    for summary in summaries:
-        by_prefix.setdefault(summary.prefix, []).append(summary)
+    fig, (s_ax, n_ax) = plt.subplots(1, 2, figsize=(13.6, 10.8), sharey=False)
 
-    sorted_prefixes = sorted(by_prefix)
-    n_plots = len(sorted_prefixes)
-    ncols = 3
-    nrows = math.ceil(n_plots / ncols)
-    fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(5.0 * ncols, 4.6 * nrows), sharey=False)
-    if hasattr(axes, "flat"):
-        axes_list = list(axes.flat)
-    else:
-        axes_list = [axes]
-
-    for idx, prefix in enumerate(sorted_prefixes):
-        ax = axes_list[idx]
-        items = sorted(by_prefix[prefix], key=lambda it: suffix_sort_key(it.suffix))
-
-        x_vals = list(range(len(items)))
-        y_vals = [it.mean_distance for it in items]
-        y_errs = [it.std_distance for it in items]
-        x_labels = [it.suffix if it.suffix else r"C$\alpha$ fixed" for it in items]
-
-        for x, item in zip(x_vals, items):
-            marker = ">" if _is_h_only_variant(item.suffix) else "o"
-            if item.distances:
-                ax.scatter(
-                    [x + 0.05] * len(item.distances),
-                    item.distances,
-                    marker=marker,
-                    color="#D3D3D3",
-                    edgecolors="none",
-                    s=58,
-                    alpha=0.85,
-                    zorder=1,
-                )
+    def _plot_symbol_panel(ax: plt.Axes, symbol: str, color: str, title: str) -> None:
+        entries = by_symbol[symbol]
+        x_vals = list(range(len(entries)))
+        for x, (_, values) in zip(x_vals, entries):
+            ax.scatter(
+                [x + 0.05] * len(values),
+                values,
+                marker="o",
+                color=color,
+                edgecolors="none",
+                s=58,
+                alpha=0.5,
+                zorder=1,
+            )
             ax.errorbar(
                 x,
-                item.mean_distance,
-                yerr=item.std_distance,
-                fmt=marker,
-                color="#333333",
-                ecolor="#333333",
+                float(np.mean(values)),
+                yerr=float(np.std(values)),
+                fmt="o",
+                color=color,
+                ecolor=color,
                 elinewidth=1.8,
                 capsize=4,
                 markersize=8,
@@ -1541,9 +1407,10 @@ def generate_first_shell_distance_figure(parent_dir: Path) -> tuple[Path, int]:
                 zorder=4,
             )
 
-        ax.set_title(format_prefix_label_with_pdb(prefix))
+        ax.set_title(title)
         ax.set_xticks(x_vals)
-        ax.set_xticklabels(x_labels, rotation=25, ha="right")
+        ax.set_xticklabels([label for label, _ in entries], rotation=65, ha="right")
+        ax.set_xlabel("Filename")
         ax.set_ylabel(r"First-shell distance ($\AA$)")
         ax.grid(alpha=0.2)
         ax.spines["top"].set_visible(False)
@@ -1551,8 +1418,8 @@ def generate_first_shell_distance_figure(parent_dir: Path) -> tuple[Path, int]:
         if x_vals:
             ax.set_xlim(-0.5, len(x_vals) - 0.5)
 
-    for ax in axes_list[n_plots:]:
-        ax.remove()
+    _plot_symbol_panel(s_ax, "S", "#D4A017", "S distances")
+    _plot_symbol_panel(n_ax, "N", "#1f77b4", "N distances")
 
     fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.96))
 
@@ -1564,7 +1431,7 @@ def generate_first_shell_distance_figure(parent_dir: Path) -> tuple[Path, int]:
 
 
 def generate_first_shell_dw_figure(parent_dir: Path) -> tuple[Path, int]:
-    summaries: list[DwFactorSummary] = []
+    by_symbol: dict[str, list[tuple[str, list[float]]]] = {"S": [], "N": []}
     skipped = 0
 
     for child_dir in iter_child_dirs(parent_dir):
@@ -1574,73 +1441,44 @@ def generate_first_shell_dw_figure(parent_dir: Path) -> tuple[Path, int]:
             skipped += 1
             continue
 
-        dw_values = _parse_first_shell_dw_factors(dw_path)
-        if not dw_values:
+        dw_values_by_symbol = _parse_first_shell_dw_factors_by_symbol(dw_path)
+        if not dw_values_by_symbol["S"] and not dw_values_by_symbol["N"]:
             skipped += 1
-            print(f"[skip] {dw_path}: no first-shell (group=nearest) DW factors found")
+            print(f"[skip] {dw_path}: no first-shell S/N (group=nearest) DW factors found")
             continue
 
-        prefix, suffix = split_prefix_suffix(child_dir.name)
-        if "h-only" in suffix.strip().lower():
-            pass
-            # continue
-        summaries.append(
-            DwFactorSummary(
-                prefix=prefix,
-                suffix=suffix,
-                mean_dw=float(np.mean(dw_values)),
-                std_dw=float(np.std(dw_values)),
-                n_points=len(dw_values),
-                dw_values=list(dw_values),
-                source_dir=child_dir,
-            )
-        )
+        label = child_dir.name
+        for symbol in ("S", "N"):
+            if dw_values_by_symbol[symbol]:
+                by_symbol[symbol].append((label, dw_values_by_symbol[symbol]))
 
-    if not summaries:
+    if not by_symbol["S"] and not by_symbol["N"]:
         raise ValueError("No first-shell DW-factor summaries could be built from dw*.dat files.")
 
     _apply_plot_rcparams(plt)
-    by_prefix: dict[str, list[DwFactorSummary]] = {}
-    for summary in summaries:
-        by_prefix.setdefault(summary.prefix, []).append(summary)
+    fig, (s_ax, n_ax) = plt.subplots(1, 2, figsize=(13.6, 10.8), sharey=False)
 
-    sorted_prefixes = sorted(by_prefix)
-    n_plots = len(sorted_prefixes)
-    ncols = 3
-    nrows = math.ceil(n_plots / ncols)
-    fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(5.0 * ncols, 4.6 * nrows), sharey=False)
-    if hasattr(axes, "flat"):
-        axes_list = list(axes.flat)
-    else:
-        axes_list = [axes]
-
-    for idx, prefix in enumerate(sorted_prefixes):
-        ax = axes_list[idx]
-        items = sorted(by_prefix[prefix], key=lambda it: suffix_sort_key(it.suffix))
-
-        x_vals = list(range(len(items)))
-        x_labels = [it.suffix if it.suffix else r"C$\alpha$ fixed" for it in items]
-
-        for x, item in zip(x_vals, items):
-            marker = ">" if _is_h_only_variant(item.suffix) else "o"
-            if item.dw_values:
-                ax.scatter(
-                    [x + 0.05] * len(item.dw_values),
-                    item.dw_values,
-                    marker=marker,
-                    color="#D3D3D3",
-                    edgecolors="none",
-                    s=58,
-                    alpha=0.85,
-                    zorder=1,
-                )
+    def _plot_symbol_panel(ax: plt.Axes, symbol: str, color: str, title: str) -> None:
+        entries = by_symbol[symbol]
+        x_vals = list(range(len(entries)))
+        for x, (_, values) in zip(x_vals, entries):
+            ax.scatter(
+                [x + 0.05] * len(values),
+                values,
+                marker="o",
+                color=color,
+                edgecolors="none",
+                s=58,
+                alpha=0.5,
+                zorder=1,
+            )
             ax.errorbar(
                 x,
-                item.mean_dw,
-                yerr=item.std_dw,
-                fmt=marker,
-                color="#333333",
-                ecolor="#333333",
+                float(np.mean(values)),
+                yerr=float(np.std(values)),
+                fmt="o",
+                color=color,
+                ecolor=color,
                 elinewidth=1.8,
                 capsize=4,
                 markersize=8,
@@ -1648,9 +1486,10 @@ def generate_first_shell_dw_figure(parent_dir: Path) -> tuple[Path, int]:
                 zorder=4,
             )
 
-        ax.set_title(format_prefix_label_with_pdb(prefix))
+        ax.set_title(title)
         ax.set_xticks(x_vals)
-        ax.set_xticklabels(x_labels, rotation=25, ha="right")
+        ax.set_xticklabels([label for label, _ in entries], rotation=65, ha="right")
+        ax.set_xlabel("Filename")
         ax.set_ylabel(r"First-shell DW factor ($\sigma^2_{FEFF}$)")
         ax.grid(alpha=0.2)
         ax.spines["top"].set_visible(False)
@@ -1658,8 +1497,8 @@ def generate_first_shell_dw_figure(parent_dir: Path) -> tuple[Path, int]:
         if x_vals:
             ax.set_xlim(-0.5, len(x_vals) - 0.5)
 
-    for ax in axes_list[n_plots:]:
-        ax.remove()
+    _plot_symbol_panel(s_ax, "S", "#D4A017", "S DW factors")
+    _plot_symbol_panel(n_ax, "N", "#1f77b4", "N DW factors")
 
     fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.96))
 
@@ -1738,8 +1577,8 @@ def main() -> int:
         type=Path,
         default=[],
         help=(
-            "Path to an experimental chi(R) data file to overlay on matching EXAFS subplots. "
-            "Repeatable; the first 4 filename characters are used as the matching ID."
+            "Path to an experimental chi(R) data file to overlay on the EXAFS average-spectrum subplot. "
+            "Repeatable."
         ),
     )
 
