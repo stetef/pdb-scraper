@@ -7,14 +7,19 @@ requires-python = ">=3.12"
 
 dependencies = [
     "biopython>=1.86",
+    "chemcoord>=2.1.2",
     "matplotlib>=3.10.8",
     "numpy>=2.3.5",
     "openbabel-wheel>=3.1.1.22",
+    "openmm>=8.4.0.post2",
+    "pdb2pqr>=3.7.1",
     "py3dmol>=2.5.4",
     "pydantic>=2.0",
     "pyyaml>=6.0",
     "requests>=2.32.5",
+    "scikit-learn>=1.6.1",
     "tqdm>=4.67.1",
+    "umap-learn>=0.5.7",
     "xraylarch>=2026.1.1",
 ]
 

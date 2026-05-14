@@ -117,6 +117,20 @@ class DwFactorSummary:
     source_dir: Path
 
 
+##############################
+# File Naming and Matching
+# Canonical parsing for prefix/suffix/variant labels used by all outputs.
+##############################
+
+
+@dataclass(frozen=True)
+class NameParts:
+    prefix: str
+    suffix: str
+    variant_label: str
+    pdb_id: str | None
+
+
 def _apply_plot_rcparams(plt_module) -> None:
     plt_module.rcParams.update(
         {
@@ -207,6 +221,204 @@ def _group_data_files(paths: list[Path]) -> list[tuple[str, list[Path], list[str
     return groups
 
 
+# ---------------------------------------------------------------------------
+# Central data registry — built once, consumed by all plot generators
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ChiEntry:
+    """One chi(R) data file with its resolved prefix/suffix/label."""
+    path: Path
+    prefix: str
+    suffix: str
+    label: str  # display label for legend
+    r_vals: "np.ndarray"
+    chir_mag_vals: "np.ndarray"
+    is_experiment: bool = False
+
+
+@dataclass
+class SourceRegistry:
+    """All parsed data, grouped by (prefix, suffix), built once in main()."""
+    # chi(R) entries (model + experiment)
+    chi_entries: list[ChiEntry]
+
+    # FileMetrics from *_w_dw.xyz (used by DW vs volume / distance plots)
+    file_metrics: list[FileMetrics]
+    file_metrics_skipped: int
+
+    # First-shell distance summaries (from dw*.dat in child dirs + --exp-data)
+    distance_summaries: list[DwDistanceSummary]
+    distance_skipped: int
+
+    # First-shell DW-factor summaries (from dw*.dat in child dirs + --exp-data)
+    dw_factor_summaries: list[DwFactorSummary]
+    dw_factor_skipped: int
+
+
+def _prefix_from_exp_path(path: Path) -> str:
+    """Derive grouping prefix from the containing directory name."""
+    return parse_name_parts(path.parent.name).prefix
+
+
+def _name_parts_for_chi_model_path(path: Path, parent_dir: Path) -> NameParts:
+    """Resolve model chi naming from the containing directory.
+
+    This keeps EXAFS matching identical to first-shell/DW matching even when
+    filenames include extra tokens or omit identifiers.
+    """
+    if path.parent == parent_dir:
+        return parse_name_parts(_normalized_stem(path))
+    return parse_name_parts(path.parent.name)
+
+
+def build_registry(
+    parent_dir: Path,
+    chi_patterns: list[str],
+    exp_data_paths: list[Path],
+) -> SourceRegistry:
+    """Scan *parent_dir* once and build SourceRegistry consumed by all generators."""
+
+    # ------------------------------------------------------------------ chi(R)
+    chi_entries: list[ChiEntry] = []
+
+    # Model chi(R) files
+    model_chi_paths = _iter_data_files(parent_dir, chi_patterns)
+    seen_model_variant_keys: set[tuple[str, str]] = set()
+    for path in model_chi_paths:
+        parts = _name_parts_for_chi_model_path(path, parent_dir)
+        variant_key = _normalize_variant_key(parts.variant_label)
+        dedupe_key = (parts.prefix, variant_key)
+        if dedupe_key in seen_model_variant_keys:
+            print(f"[skip] duplicate chi(R) model variant for {parts.prefix}: {path.name}")
+            continue
+        try:
+            r_vals, chir_mag_vals = _load_r_chir_mag(path)
+        except ValueError as exc:
+            print(f"[skip] chi(R) model file {path}: {exc}")
+            continue
+        seen_model_variant_keys.add(dedupe_key)
+        chi_entries.append(ChiEntry(
+            path=path, prefix=parts.prefix, suffix=parts.suffix, label=parts.variant_label,
+            r_vals=r_vals, chir_mag_vals=chir_mag_vals, is_experiment=False,
+        ))
+
+    # Experimental chi(R) files — match to subplot prefix via split_prefix_suffix
+    for raw_path in exp_data_paths or []:
+        resolved = _resolve_exp_data_path(raw_path, parent_dir)
+        if not resolved.exists():
+            print(f"[skip] experimental chi(R) file not found: {raw_path}")
+            continue
+        prefix = _prefix_from_exp_path(resolved)
+        label = _exp_legend_label(resolved)
+        try:
+            r_vals, chir_mag_vals = _load_r_chir_mag(resolved)
+        except ValueError as exc:
+            print(f"[skip] experimental chi(R) file {resolved}: {exc}")
+            continue
+        chi_entries.append(ChiEntry(
+            path=resolved, prefix=prefix, suffix="", label=f"exp {label}",
+            r_vals=r_vals, chir_mag_vals=chir_mag_vals, is_experiment=True,
+        ))
+
+    # -------------------------------------------------------- FileMetrics (*_w_dw.xyz)
+    w_dw_paths = collect_w_dw_xyz(parent_dir)
+    file_metrics: list[FileMetrics] = []
+    file_metrics_skipped = 0
+    for path in w_dw_paths:
+        try:
+            file_metrics.append(metrics_from_file(path))
+        except ValueError as exc:
+            file_metrics_skipped += 1
+            print(f"[skip] {path}: {exc}")
+
+    # ------------------------------------------------- First-shell summaries
+    distance_summaries: list[DwDistanceSummary] = []
+    dw_factor_summaries: list[DwFactorSummary] = []
+    distance_skipped = 0
+    dw_factor_skipped = 0
+
+    for child_dir in iter_child_dirs(parent_dir):
+        try:
+            dw_path = find_dw_file(child_dir)
+        except FileNotFoundError:
+            distance_skipped += 1
+            dw_factor_skipped += 1
+            continue
+
+        prefix, suffix = split_prefix_suffix(child_dir.name)
+
+        distances = _parse_first_shell_distances(dw_path)
+        if not distances:
+            distance_skipped += 1
+            print(f"[skip] {dw_path}: no first-shell (group=nearest) distances found")
+        else:
+            distance_summaries.append(DwDistanceSummary(
+                prefix=prefix, suffix=suffix,
+                mean_distance=float(np.mean(distances)),
+                std_distance=float(np.std(distances)),
+                n_points=len(distances),
+                distances=list(distances),
+                source_dir=child_dir,
+            ))
+
+        dw_values = _parse_first_shell_dw_factors(dw_path)
+        if not dw_values:
+            dw_factor_skipped += 1
+            print(f"[skip] {dw_path}: no first-shell (group=nearest) DW factors found")
+        else:
+            dw_factor_summaries.append(DwFactorSummary(
+                prefix=prefix, suffix=suffix,
+                mean_dw=float(np.mean(dw_values)),
+                std_dw=float(np.std(dw_values)),
+                n_points=len(dw_values),
+                dw_values=list(dw_values),
+                source_dir=child_dir,
+            ))
+
+    # ------------------------------- Experimental dw*.dat files from --exp-data
+    # If an --exp-data path points at a dw*.dat-style file rather than a chi(R)
+    # file, include it in the first-shell summaries too, matched by prefix.
+    for raw_path in exp_data_paths or []:
+        resolved = _resolve_exp_data_path(raw_path, parent_dir)
+        if not resolved.exists():
+            continue
+        # Only treat as dw*.dat if it starts with "dw"
+        if not resolved.name.lower().startswith("dw"):
+            continue
+        exp_parts = parse_name_parts(resolved.parent.name)
+        distances = _parse_first_shell_distances(resolved)
+        if distances:
+            distance_summaries.append(DwDistanceSummary(
+                prefix=exp_parts.prefix, suffix=exp_parts.suffix,
+                mean_distance=float(np.mean(distances)),
+                std_distance=float(np.std(distances)),
+                n_points=len(distances),
+                distances=list(distances),
+                source_dir=resolved.parent,
+            ))
+        dw_values_exp = _parse_first_shell_dw_factors(resolved)
+        if dw_values_exp:
+            dw_factor_summaries.append(DwFactorSummary(
+                prefix=exp_parts.prefix, suffix=exp_parts.suffix,
+                mean_dw=float(np.mean(dw_values_exp)),
+                std_dw=float(np.std(dw_values_exp)),
+                n_points=len(dw_values_exp),
+                dw_values=list(dw_values_exp),
+                source_dir=resolved.parent,
+            ))
+
+    return SourceRegistry(
+        chi_entries=chi_entries,
+        file_metrics=file_metrics,
+        file_metrics_skipped=file_metrics_skipped,
+        distance_summaries=distance_summaries,
+        distance_skipped=distance_skipped,
+        dw_factor_summaries=dw_factor_summaries,
+        dw_factor_skipped=dw_factor_skipped,
+    )
+
+
 def _extract_id_token(value: str) -> str | None:
     for token in re.findall(r"[A-Za-z0-9]+", value):
         if not FOUR_ALNUM_PATTERN.fullmatch(token):
@@ -241,6 +453,41 @@ def _split_known_variant_suffix(base: str) -> tuple[str, str]:
     return "-".join(root_tokens), ""
 
 
+def parse_name_parts(stem: str) -> NameParts:
+    base = stem
+    if base.endswith("_w_dw"):
+        base = base[: -len("_w_dw")]
+
+    tokens = [
+        token
+        for token in re.findall(r"[A-Za-z0-9]+", base)
+        if token and not PLACEHOLDER_ID_PATTERN.fullmatch(token)
+    ]
+    if not tokens:
+        return NameParts(prefix=base, suffix="", variant_label="CA_fixed", pdb_id=None)
+
+    id_idx = next((idx for idx, token in enumerate(tokens) if _is_pdb_id_token(token)), None)
+    if id_idx is not None:
+        end_idx = id_idx
+        if id_idx + 1 < len(tokens) and CLUSTER_TOKEN_PATTERN.fullmatch(tokens[id_idx + 1]):
+            end_idx = id_idx + 1
+        if end_idx + 1 < len(tokens) and tokens[end_idx + 1].lower() in METAL_TOKEN_SET:
+            end_idx = end_idx + 1
+
+        prefix = "-".join(tokens[: end_idx + 1])
+        suffix = "_".join(tokens[end_idx + 1 :]).strip("_")
+        variant_label = _legend_label_from_suffix(suffix)
+        return NameParts(prefix=prefix, suffix=suffix, variant_label=variant_label, pdb_id=_extract_id_token(prefix))
+
+    prefix, suffix = _split_known_variant_suffix("-".join(tokens))
+    return NameParts(
+        prefix=prefix,
+        suffix=suffix,
+        variant_label=_legend_label_from_suffix(suffix),
+        pdb_id=_extract_id_token(prefix),
+    )
+
+
 def _normalize_variant_key(value: str) -> str:
     return value.strip().replace("_", "-").lower()
 
@@ -257,7 +504,7 @@ def _legend_label_from_suffix(suffix: str) -> str:
 
 
 def _subplot_title_from_prefix(prefix: str) -> str:
-    pdb_id = _extract_id_token(prefix)
+    pdb_id = parse_name_parts(prefix).pdb_id
     if pdb_id is not None:
         return pdb_id
     return prefix
@@ -362,39 +609,8 @@ def tetrahedron_volume(points: list[np.ndarray]) -> float:
 
 
 def split_prefix_suffix(stem: str) -> tuple[str, str]:
-    base = stem
-    if base.endswith("_w_dw"):
-        base = base[: -len("_w_dw")]
-
-    tokens = [
-        token
-        for token in re.findall(r"[A-Za-z0-9]+", base)
-        if token and not PLACEHOLDER_ID_PATTERN.fullmatch(token)
-    ]
-    if not tokens:
-        return base, ""
-
-    id_idx = next(
-        (
-            idx
-            for idx, token in enumerate(tokens)
-            if _is_pdb_id_token(token)
-        ),
-        None,
-    )
-    if id_idx is not None:
-        end_idx = id_idx
-        if id_idx + 1 < len(tokens) and CLUSTER_TOKEN_PATTERN.fullmatch(tokens[id_idx + 1]):
-            end_idx = id_idx + 1
-        if end_idx + 1 < len(tokens) and tokens[end_idx + 1].lower() in METAL_TOKEN_SET:
-            end_idx = end_idx + 1
-
-        prefix = "-".join(tokens[: end_idx + 1])
-        suffix = "_".join(tokens[end_idx + 1 :]).strip("_")
-        return prefix, suffix
-
-    no_placeholder_base = "-".join(tokens)
-    return _split_known_variant_suffix(no_placeholder_base)
+    parts = parse_name_parts(stem)
+    return parts.prefix, parts.suffix
 
 
 def suffix_sort_key(suffix: str) -> tuple[int, str]:
@@ -415,6 +631,16 @@ def _include_dw_suffix(suffix: str) -> bool:
 
 def _is_h_only_variant(suffix: str) -> bool:
     return _normalize_variant_key(suffix).startswith("h-only")
+
+
+def _build_suffix_marker_map(suffixes: Iterable[str]) -> dict[str, str]:
+    marker_cycle = ["o", "s", "^", "v", "D", "P", "X", "<", ">", "*", "h", "8", "p"]
+    unique_keys = sorted({_normalize_variant_key(suffix) for suffix in suffixes}, key=suffix_sort_key)
+    return {key: marker_cycle[idx % len(marker_cycle)] for idx, key in enumerate(unique_keys)}
+
+
+def _marker_for_suffix(suffix: str, marker_map: dict[str, str]) -> str:
+    return marker_map.get(_normalize_variant_key(suffix), "o")
 
 
 def format_prefix_label(prefix: str) -> str:
@@ -461,40 +687,45 @@ def metrics_from_file(path: Path) -> FileMetrics:
     atoms = parse_w_dw_xyz(path)
     ca_atoms = [a for a in atoms if a.symbol.strip().upper() == "C"]
     first_shell_atoms = [a for a in atoms if a.symbol.strip().upper() in {"S", "N"}]
-    first_shell_type_labels = _match_first_shell_n_to_labels(path, first_shell_atoms)
-
-    if len(first_shell_atoms) != 4:
+    if not first_shell_atoms:
         raise ValueError(
             "missing dw notation for first-shell S/N atoms "
-            f"(expected 4 S/N atoms with dw=<value>, found {len(first_shell_atoms)})"
+            "(expected at least 1 S/N atom with dw=<value>, found 0)"
         )
-    if len(ca_atoms) < 4:
-        raise ValueError(
-            "missing dw notation for C atoms "
-            f"(expected at least 4 C atoms with dw=<value>, found {len(ca_atoms)})"
-        )
+    first_shell_type_labels = _match_first_shell_n_to_labels(path, first_shell_atoms)
 
-    paired_ca = _assign_ca_to_first_shell(first_shell_atoms, ca_atoms)
+    paired_ca: list[DwTaggedAtom] = []
+    if len(ca_atoms) >= len(first_shell_atoms):
+        paired_ca = _assign_ca_to_first_shell(first_shell_atoms, ca_atoms)
 
     type_buckets: dict[str, dict[str, list[DwTaggedAtom]]] = {}
-    for first_atom, ca_atom, atom_type in zip(first_shell_atoms, paired_ca, first_shell_type_labels):
+    for first_atom, atom_type in zip(first_shell_atoms, first_shell_type_labels):
         bucket = type_buckets.setdefault(atom_type, {"first": [], "ca": []})
         bucket["first"].append(first_atom)
+    for ca_atom, atom_type in zip(paired_ca, first_shell_type_labels):
+        bucket = type_buckets.setdefault(atom_type, {"first": [], "ca": []})
         bucket["ca"].append(ca_atom)
 
-    c_points = [np.asarray((a.x, a.y, a.z), dtype=float) for a in ca_atoms]
-    volume = tetrahedron_volume(c_points)
+    if len(ca_atoms) >= 4:
+        c_points = [np.asarray((a.x, a.y, a.z), dtype=float) for a in ca_atoms[:4]]
+        volume = tetrahedron_volume(c_points)
+    else:
+        volume = float("nan")
 
     first_distances_from_origin = [float(np.linalg.norm((a.x, a.y, a.z))) for a in first_shell_atoms]
     ca_distances_from_origin = [float(np.linalg.norm((a.x, a.y, a.z))) for a in paired_ca]
     aggregate_first_distance_dw = list(zip(first_distances_from_origin, [a.dw for a in first_shell_atoms]))
     aggregate_ca_distance_dw = list(zip(ca_distances_from_origin, [a.dw for a in paired_ca]))
     aggregate_variance_first_from_origin = float(np.var(first_distances_from_origin))
-    aggregate_variance_ca_from_origin = float(np.var(ca_distances_from_origin))
+    aggregate_variance_ca_from_origin = float(np.var(ca_distances_from_origin)) if ca_distances_from_origin else float("nan")
     aggregate_raw_mean_dw_first = float(np.mean([a.dw for a in first_shell_atoms]))
-    aggregate_raw_mean_dw_ca = float(np.mean([a.dw for a in paired_ca]))
+    aggregate_raw_mean_dw_ca = float(np.mean([a.dw for a in paired_ca])) if paired_ca else float("nan")
     aggregate_mean_dw_first = aggregate_raw_mean_dw_first + aggregate_variance_first_from_origin
-    aggregate_mean_dw_ca = aggregate_raw_mean_dw_ca + aggregate_variance_ca_from_origin
+    aggregate_mean_dw_ca = (
+        aggregate_raw_mean_dw_ca + aggregate_variance_ca_from_origin
+        if np.isfinite(aggregate_raw_mean_dw_ca) and np.isfinite(aggregate_variance_ca_from_origin)
+        else float("nan")
+    )
 
     by_atom_type: dict[str, CoordinationTypeMetrics] = {}
     for atom_type, atoms_for_type in type_buckets.items():
@@ -503,9 +734,9 @@ def metrics_from_file(path: Path) -> FileMetrics:
         first_distances = [float(np.linalg.norm((a.x, a.y, a.z))) for a in first_for_type]
         ca_distances = [float(np.linalg.norm((a.x, a.y, a.z))) for a in ca_for_type]
         raw_mean_dw_first = float(np.mean([a.dw for a in first_for_type]))
-        raw_mean_dw_ca = float(np.mean([a.dw for a in ca_for_type]))
+        raw_mean_dw_ca = float(np.mean([a.dw for a in ca_for_type])) if ca_for_type else float("nan")
         variance_first_from_origin = float(np.var(first_distances))
-        variance_ca_from_origin = float(np.var(ca_distances))
+        variance_ca_from_origin = float(np.var(ca_distances)) if ca_distances else float("nan")
         by_atom_type[atom_type] = CoordinationTypeMetrics(
             atom_type=atom_type,
             raw_mean_dw_first=raw_mean_dw_first,
@@ -513,16 +744,20 @@ def metrics_from_file(path: Path) -> FileMetrics:
             variance_first_from_origin=variance_first_from_origin,
             variance_ca_from_origin=variance_ca_from_origin,
             mean_dw_first=raw_mean_dw_first + variance_first_from_origin,
-            mean_dw_ca=raw_mean_dw_ca + variance_ca_from_origin,
+            mean_dw_ca=(
+                raw_mean_dw_ca + variance_ca_from_origin
+                if np.isfinite(raw_mean_dw_ca) and np.isfinite(variance_ca_from_origin)
+                else float("nan")
+            ),
             first_distance_dw=list(zip(first_distances, [a.dw for a in first_for_type])),
             ca_distance_dw=list(zip(ca_distances, [a.dw for a in ca_for_type])),
         )
 
-    prefix, suffix = split_prefix_suffix(path.stem)
+    parts = parse_name_parts(path.parent.name)
     return FileMetrics(
         path=path,
-        prefix=prefix,
-        suffix=suffix,
+        prefix=parts.prefix,
+        suffix=parts.suffix,
         volume=volume,
         aggregate_raw_mean_dw_first=aggregate_raw_mean_dw_first,
         aggregate_raw_mean_dw_ca=aggregate_raw_mean_dw_ca,
@@ -546,14 +781,16 @@ def make_plot(
     out_path: Path,
     variant_separation: float,
     group_by_atom_type: bool,
-    variance_ymin: float | None,
-    variance_ymax: float | None,
-    total_ymin: float | None,
-    total_ymax: float | None,
     atom_type_separation: float,
 ) -> None:
     _apply_plot_rcparams(plt)
-    fig = plt.figure(figsize=(12.5, 14.5))
+    filtered = list(metrics)
+    plottable = [m for m in filtered if np.isfinite(m.volume)]
+    if not plottable:
+        raise ValueError("No metrics with finite tetrahedron volume available for plotting.")
+
+    dynamic_height = max(14.5, 7.5 + 0.42 * len(plottable))
+    fig = plt.figure(figsize=(12.5, dynamic_height))
     gs = fig.add_gridspec(
         3,
         1,
@@ -566,29 +803,52 @@ def make_plot(
     ax_var_s = fig.add_subplot(gs[1, 0], sharex=ax_raw_s)
     ax_total_s = fig.add_subplot(gs[2, 0], sharex=ax_raw_s)
 
-    filtered = [m for m in metrics if _include_dw_suffix(m.suffix)]
+    suffix_marker_map = _build_suffix_marker_map(m.suffix for m in filtered)
     by_prefix: dict[str, list[FileMetrics]] = {}
-    for m in filtered:
+    for m in plottable:
         by_prefix.setdefault(m.prefix, []).append(m)
 
     def _metric_value(metric: FileMetrics, species: str, component: str, atom_type: str | None) -> float:
-        if atom_type is not None and atom_type in metric.by_atom_type:
-            group = metric.by_atom_type[atom_type]
+        if atom_type is None:
             if component == "raw":
-                return group.raw_mean_dw_first if species == "first" else group.raw_mean_dw_ca
+                return metric.aggregate_raw_mean_dw_first if species == "first" else metric.aggregate_raw_mean_dw_ca
             if component == "variance":
-                return group.variance_first_from_origin if species == "first" else group.variance_ca_from_origin
-            return group.mean_dw_first if species == "first" else group.mean_dw_ca
+                return (
+                    metric.aggregate_variance_first_from_origin
+                    if species == "first"
+                    else metric.aggregate_variance_ca_from_origin
+                )
+            return metric.aggregate_mean_dw_first if species == "first" else metric.aggregate_mean_dw_ca
 
+        if atom_type == "N":
+            groups = [metric.by_atom_type[key] for key in ("N", "ND", "NE") if key in metric.by_atom_type]
+            if not groups:
+                return float("nan")
+
+            if species == "first":
+                distances = [distance for group in groups for distance, _ in group.first_distance_dw]
+                dw_values = [dw for group in groups for _, dw in group.first_distance_dw]
+            else:
+                distances = [distance for group in groups for distance, _ in group.ca_distance_dw]
+                dw_values = [dw for group in groups for _, dw in group.ca_distance_dw]
+
+            if not distances or not dw_values:
+                return float("nan")
+
+            if component == "raw":
+                return float(np.mean(dw_values))
+            if component == "variance":
+                return float(np.var(distances))
+            return float(np.mean(dw_values) + np.var(distances))
+
+        group = metric.by_atom_type.get(atom_type)
+        if group is None:
+            return float("nan")
         if component == "raw":
-            return metric.aggregate_raw_mean_dw_first if species == "first" else metric.aggregate_raw_mean_dw_ca
+            return group.raw_mean_dw_first if species == "first" else group.raw_mean_dw_ca
         if component == "variance":
-            return (
-                metric.aggregate_variance_first_from_origin
-                if species == "first"
-                else metric.aggregate_variance_ca_from_origin
-            )
-        return metric.aggregate_mean_dw_first if species == "first" else metric.aggregate_mean_dw_ca
+            return group.variance_first_from_origin if species == "first" else group.variance_ca_from_origin
+        return group.mean_dw_first if species == "first" else group.mean_dw_ca
 
     def _types_for_metric(metric: FileMetrics) -> list[str | None]:
         if not group_by_atom_type:
@@ -626,8 +886,10 @@ def make_plot(
                 variant_shift = (idx - (n_items - 1) / 2.0) * variant_separation
                 for atom_type in _types_for_metric(m):
                     base_x = m.volume + variant_shift + _type_shift(atom_type)
-                    marker = ">" if _is_h_only_variant(m.suffix) else "o"
+                    marker = _marker_for_suffix(m.suffix, suffix_marker_map)
                     y_value = _metric_value(m, species, component, atom_type)
+                    if not np.isfinite(y_value):
+                        continue
                     ax.scatter(
                         base_x,
                         y_value,
@@ -654,7 +916,7 @@ def make_plot(
     _draw_species_points(ax_total_s, "first", "total")
 
     ordered_metric_lines: list[str] = []
-    ordered_metrics = sorted(filtered, key=lambda m: (m.volume, m.prefix, suffix_sort_key(m.suffix)))
+    ordered_metrics = sorted(plottable, key=lambda m: (m.volume, m.prefix, suffix_sort_key(m.suffix)))
     for idx, metric in enumerate(ordered_metrics, start=1):
         suffix_label = metric.suffix if metric.suffix else r"C$\alpha$ fixed"
         ordered_metric_lines.append(
@@ -678,59 +940,17 @@ def make_plot(
         # + "\n\nPrefix consistency check:\n"
         # + "\n".join(consistency_lines)
     )
+    line_count = sequence_text.count("\n") + 1
+    text_fontsize = max(10, 18 - max(0, line_count - 26) // 3)
     fig.text(
         0.75,
         0.95,
         sequence_text,
         ha="left",
         va="top",
-        fontsize=18,
+        fontsize=text_fontsize,
         # family="monospace",
     )
-
-    def _collect_first_shell_values(component: str) -> list[float]:
-        values: list[float] = []
-        for m in filtered:
-            for atom_type in _types_for_metric(m):
-                values.append(_metric_value(m, "first", component, atom_type))
-        return values
-
-    def _auto_bottom_from_top(values: list[float], top: float) -> float | None:
-        visible = [v for v in values if v <= top]
-        if not visible:
-            return None
-        low = min(visible)
-        high = max(visible)
-        if high > low:
-            pad = 0.08 * (high - low)
-        else:
-            scale = max(abs(low), abs(high), 1e-6)
-            pad = 0.08 * scale
-        return max(0.0, low - pad)
-
-    variance_values = _collect_first_shell_values("variance")
-    if variance_ymax is not None and variance_ymin is None:
-        auto_bottom = _auto_bottom_from_top(variance_values, variance_ymax)
-        if auto_bottom is None:
-            ax_var_s.set_ylim(top=variance_ymax)
-        else:
-            ax_var_s.set_ylim(bottom=auto_bottom, top=variance_ymax)
-    elif variance_ymax is not None:
-        ax_var_s.set_ylim(bottom=variance_ymin, top=variance_ymax)
-    elif variance_ymin is not None:
-        ax_var_s.set_ylim(bottom=variance_ymin)
-
-    total_values = _collect_first_shell_values("total")
-    if total_ymax is not None and total_ymin is None:
-        auto_bottom = _auto_bottom_from_top(total_values, total_ymax)
-        if auto_bottom is None:
-            ax_total_s.set_ylim(top=total_ymax)
-        else:
-            ax_total_s.set_ylim(bottom=auto_bottom, top=total_ymax)
-    elif total_ymax is not None:
-        ax_total_s.set_ylim(bottom=total_ymin, top=total_ymax)
-    elif total_ymin is not None:
-        ax_total_s.set_ylim(bottom=total_ymin)
 
     ax_var_s.tick_params(axis="x", which="both", labelbottom=False)
     ax_raw_s.tick_params(axis="x", which="both", labelbottom=False)
@@ -741,34 +961,43 @@ def make_plot(
     ax_total_s.set_ylabel(r"Total ($\overline{\sigma^2}$)")
     ax_total_s.set_xlabel(r"C$\alpha$-tetrahedron volume ($\AA^3$)")
 
+    legend_handles: list[Line2D] = []
     if group_by_atom_type:
         has_s = any("S" in m.by_atom_type for m in filtered)
         has_n = any(("ND" in m.by_atom_type) or ("NE" in m.by_atom_type) or ("N" in m.by_atom_type) for m in filtered)
-        legend_s: list[Line2D] = []
         if has_s:
-            legend_s.extend(
-                [
-                    Line2D([0], [0], marker=">", linestyle="", markerfacecolor="#D4A017", markeredgecolor="none", markersize=11, alpha=0.7, label="S, H-only"),
-                    Line2D([0], [0], marker="o", linestyle="", markerfacecolor="#D4A017", markeredgecolor="none", markersize=11, alpha=0.7, label=r"S, C$\alpha$ fixed"),
-                ]
+            legend_handles.append(
+                Line2D([0], [0], marker="o", linestyle="", markerfacecolor="#D4A017", markeredgecolor="none", markersize=11, alpha=0.7, label="S")
             )
         if has_n:
-            legend_s.extend(
-                [
-                    Line2D([0], [0], marker=">", linestyle="", markerfacecolor="#1f77b4", markeredgecolor="none", markersize=11, alpha=0.7, label="N, H-only"),
-                    Line2D([0], [0], marker="o", linestyle="", markerfacecolor="#1f77b4", markeredgecolor="none", markersize=11, alpha=0.7, label=r"N, C$\alpha$ fixed"),
-                ]
+            legend_handles.append(
+                Line2D([0], [0], marker="o", linestyle="", markerfacecolor="#1f77b4", markeredgecolor="none", markersize=11, alpha=0.7, label="N")
             )
     else:
-        legend_s = [
-            Line2D([0], [0], marker=">", linestyle="", markerfacecolor="#D4A017", markeredgecolor="none", markersize=11, alpha=0.7, label="First shell, H-only"),
-            Line2D([0], [0], marker="o", linestyle="", markerfacecolor="#D4A017", markeredgecolor="none", markersize=11, alpha=0.7, label=r"First shell, C$\alpha$ fixed"),
-        ]
+        legend_handles.append(
+            Line2D([0], [0], marker="o", linestyle="", markerfacecolor="#D4A017", markeredgecolor="none", markersize=11, alpha=0.7, label="First shell")
+        )
+
+    suffix_keys = sorted({_normalize_variant_key(m.suffix) for m in filtered}, key=suffix_sort_key)
+    for suffix_key in suffix_keys:
+        legend_handles.append(
+            Line2D(
+                [0],
+                [0],
+                marker=_marker_for_suffix(suffix_key, suffix_marker_map),
+                linestyle="",
+                markerfacecolor="#666666",
+                markeredgecolor="none",
+                markersize=11,
+                alpha=0.9,
+                label=f"suffix: {_legend_label_from_suffix(suffix_key)}",
+            )
+        )
 
     if filtered:
-        ax_total_s.legend(handles=legend_s, loc="best", frameon=True)
+        ax_total_s.legend(handles=legend_handles, loc="best", frameon=True)
 
-    fig.subplots_adjust(left=0.11, right=0.73, bottom=0.07, top=0.94, wspace=0.0, hspace=0.2)
+    fig.subplots_adjust(left=0.11, right=0.73, bottom=0.05, top=0.94, wspace=0.0, hspace=0.2)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
@@ -785,7 +1014,8 @@ def make_distance_plot(
     _apply_plot_rcparams(plt)
     fig, ax_s = plt.subplots(1, 1, figsize=(9.2, 6.8), sharey=False)
 
-    filtered = [m for m in metrics if _include_dw_suffix(m.suffix)]
+    filtered = list(metrics)
+    suffix_marker_map = _build_suffix_marker_map(m.suffix for m in filtered)
     by_prefix: dict[str, list[FileMetrics]] = {}
     for m in filtered:
         by_prefix.setdefault(m.prefix, []).append(m)
@@ -848,7 +1078,7 @@ def make_distance_plot(
         n_items = len(ordered)
         for idx, m in enumerate(ordered):
             variant_shift = (idx - (n_items - 1) / 2.0) * variant_separation
-            marker = ">" if _is_h_only_variant(m.suffix) else "o"
+            marker = _marker_for_suffix(m.suffix, suffix_marker_map)
 
             for atom_type in _types_for_metric(m):
                 x_shift = variant_shift + _type_shift(atom_type)
@@ -870,37 +1100,52 @@ def make_distance_plot(
     ax_s.set_xlabel(r"Distance from origin ($\AA$)")
     ax_s.set_ylabel(r"Debye-Waller factor ($\sigma^2_{FEFF}$)")
 
+    legend_handles: list[Line2D] = []
     if group_by_atom_type:
         has_s = any("S" in m.by_atom_type for m in filtered)
         has_n = any(("ND" in m.by_atom_type) or ("NE" in m.by_atom_type) or ("N" in m.by_atom_type) for m in filtered)
-        legend_s: list[Line2D] = []
         if has_s:
-            legend_s.extend(
-                [
-                    Line2D([0], [0], marker=">", linestyle="", markerfacecolor="#D4A017", markeredgecolor="none", markersize=11, alpha=0.7, label="S, H-only"),
-                    Line2D([0], [0], marker="o", linestyle="", markerfacecolor="#D4A017", markeredgecolor="none", markersize=11, alpha=0.7, label=r"S, C$\alpha$ fixed"),
-                ]
+            legend_handles.append(
+                Line2D([0], [0], marker="o", linestyle="", markerfacecolor="#D4A017", markeredgecolor="none", markersize=11, alpha=0.7, label="S")
             )
         if has_n:
-            legend_s.extend(
-                [
-                    Line2D([0], [0], marker=">", linestyle="", markerfacecolor="#1f77b4", markeredgecolor="none", markersize=11, alpha=0.7, label="N, H-only"),
-                    Line2D([0], [0], marker="o", linestyle="", markerfacecolor="#1f77b4", markeredgecolor="none", markersize=11, alpha=0.7, label=r"N, C$\alpha$ fixed"),
-                ]
+            legend_handles.append(
+                Line2D([0], [0], marker="o", linestyle="", markerfacecolor="#1f77b4", markeredgecolor="none", markersize=11, alpha=0.7, label="N")
             )
     else:
-        legend_s = [
-            Line2D([0], [0], marker=">", linestyle="", markerfacecolor="#D4A017", markeredgecolor="none", markersize=11, alpha=0.7, label="First shell, H-only"),
-            Line2D([0], [0], marker="o", linestyle="", markerfacecolor="#D4A017", markeredgecolor="none", markersize=11, alpha=0.7, label=r"First shell, C$\alpha$ fixed"),
-        ]
+        legend_handles.append(
+            Line2D([0], [0], marker="o", linestyle="", markerfacecolor="#D4A017", markeredgecolor="none", markersize=11, alpha=0.7, label="First shell")
+        )
+
+    suffix_keys = sorted({_normalize_variant_key(m.suffix) for m in filtered}, key=suffix_sort_key)
+    for suffix_key in suffix_keys:
+        legend_handles.append(
+            Line2D(
+                [0],
+                [0],
+                marker=_marker_for_suffix(suffix_key, suffix_marker_map),
+                linestyle="",
+                markerfacecolor="#666666",
+                markeredgecolor="none",
+                markersize=11,
+                alpha=0.9,
+                label=f"suffix: {_legend_label_from_suffix(suffix_key)}",
+            )
+        )
 
     if filtered:
-        ax_s.legend(handles=legend_s, loc="best", frameon=True)
+        ax_s.legend(handles=legend_handles, loc="best", frameon=True)
 
     fig.tight_layout()
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
+
+
+##############################
+# DW Annotation I/O
+# Parse XYZ and DW rows, match atoms, and write annotated *_w_dw.xyz files.
+##############################
 
 
 def _canonical_symbol(symbol: str) -> str:
@@ -945,6 +1190,7 @@ def parse_xyz(path: Path) -> tuple[list[str], list[XyzAtom]]:
 
 def parse_dw(path: Path) -> list[DwAtom]:
     rows: list[DwAtom] = []
+    ca_kept = 0
     for line in path.read_text(encoding="utf-8").splitlines():
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
@@ -954,6 +1200,14 @@ def parse_dw(path: Path) -> list[DwAtom]:
         if len(parts) < 8:
             continue
         if parts[0].lower() == "group" and parts[1].lower() == "symbol":
+            continue
+
+        group = parts[0].strip().lower()
+        if group == "ca":
+            if ca_kept >= 4:
+                continue
+            ca_kept += 1
+        elif group != "nearest":
             continue
 
         # Expected columns:
@@ -1274,35 +1528,26 @@ def iter_child_dirs(parent_dir: Path) -> list[Path]:
     return sorted(p for p in parent_dir.iterdir() if p.is_dir())
 
 
+##############################
+# Figure Builders
+# Create all output figures using shared naming/matching rules.
+##############################
+
+
 def generate_dw_figures(
     parent_dir: Path,
+    registry: "SourceRegistry",
     *,
     variant_separation: float,
     group_by_atom_type: bool,
-    variance_ymin: float | None,
-    variance_ymax: float | None,
-    total_ymin: float | None,
-    total_ymax: float | None,
     atom_type_separation: float,
 ) -> tuple[Path, Path, int]:
-    cropped = any(v is not None for v in (variance_ymin, variance_ymax, total_ymin, total_ymax))
-    name_prefix = "cropped-" if cropped else ""
     dir_suffix = parent_dir.name.replace(" ", "")
-    out_path = parent_dir / f"{name_prefix}dw_vs_tetra_volume-{dir_suffix}.png"
+    out_path = parent_dir / f"dw_vs_tetra_volume-{dir_suffix}.png"
     out_distance_path = parent_dir / f"dw_vs_distance-{dir_suffix}.png"
 
-    paths = collect_w_dw_xyz(parent_dir)
-    if not paths:
-        raise ValueError(f"No *_w_dw.xyz files found under: {parent_dir}")
-
-    metrics = []
-    skipped = 0
-    for path in paths:
-        try:
-            metrics.append(metrics_from_file(path))
-        except ValueError as exc:
-            skipped += 1
-            print(f"[skip] {path}: {exc}")
+    metrics = registry.file_metrics
+    skipped = registry.file_metrics_skipped
 
     if not metrics:
         raise ValueError("No valid *_w_dw.xyz files for plotting.")
@@ -1312,10 +1557,6 @@ def generate_dw_figures(
         out_path=out_path,
         variant_separation=variant_separation,
         group_by_atom_type=group_by_atom_type,
-        variance_ymin=variance_ymin,
-        variance_ymax=variance_ymax,
-        total_ymin=total_ymin,
-        total_ymax=total_ymax,
         atom_type_separation=atom_type_separation,
     )
     make_distance_plot(
@@ -1330,57 +1571,52 @@ def generate_dw_figures(
 
 def generate_chi_figure(
     parent_dir: Path,
+    registry: "SourceRegistry",
     patterns: list[str],
     exp_data_paths: list[Path] | None = None,
 ) -> Path:
-    data_files = _iter_data_files(parent_dir, patterns)
-    if not data_files:
+    all_entries = registry.chi_entries
+    model_entries = [e for e in all_entries if not e.is_experiment]
+    exp_entries = [e for e in all_entries if e.is_experiment]
+
+    if not model_entries and not exp_entries:
         raise ValueError(f"No chi_R*.dat files found under {parent_dir}")
 
-    exp_by_key: dict[str, list[tuple[Path, np.ndarray, np.ndarray]]] = {}
-    for exp_path in exp_data_paths or []:
-        resolved_exp_path = _resolve_exp_data_path(exp_path, parent_dir)
-        if not resolved_exp_path.exists():
-            print(f"[skip] experimental chi(R) file not found: {exp_path}")
-            continue
+    # Build prefix → model entries map (preserving suffix sort order)
+    by_prefix: dict[str, list[ChiEntry]] = {}
+    for entry in model_entries:
+        by_prefix.setdefault(entry.prefix, []).append(entry)
+    for prefix in by_prefix:
+        by_prefix[prefix].sort(key=lambda e: (suffix_sort_key(e.suffix), e.path.as_posix()))
 
-        exp_key = _exp_match_key_from_filename(resolved_exp_path)
-        if exp_key is None:
-            print(f"[skip] experimental file key could not be parsed from filename: {resolved_exp_path.name}")
-            continue
+    # Build prefix → exp entries map
+    exp_by_prefix: dict[str, list[ChiEntry]] = {}
+    for entry in exp_entries:
+        exp_by_prefix.setdefault(entry.prefix, []).append(entry)
 
-        try:
-            r_vals, chir_mag_vals = _load_r_chir_mag(resolved_exp_path)
-        except ValueError as exc:
-            print(f"[skip] experimental chi(R) file {resolved_exp_path}: {exc}")
-            continue
+    sorted_prefixes = sorted(by_prefix)
 
-        exp_by_key.setdefault(exp_key, []).append((resolved_exp_path, r_vals, chir_mag_vals))
-
-    _apply_plot_rcparams(plt)
-    grouped = _group_data_files(data_files)
-    num_groups = len(grouped)
-
-    all_variant_labels = {
-        label
-        for _, _, display_labels in grouped
-        for label in display_labels
-    }
+    # Collect ordered variant labels across all model entries
+    all_variant_labels = {e.label for e in model_entries}
     ordered_variant_labels = sorted(
         all_variant_labels,
         key=lambda label: suffix_sort_key(_normalize_variant_key(label).replace("-", "_")),
     )
-    has_exp_panel = bool(exp_data_paths) and bool(exp_by_key)
+    has_exp_panel = bool(exp_entries)
+    num_groups = len(sorted_prefixes)
     total_subplots = num_groups + len(ordered_variant_labels) + (1 if has_exp_panel else 0)
     ncols = 3
     nrows = math.ceil(total_subplots / ncols)
+    max_group_size = max((len(v) for v in by_prefix.values()), default=0)
     max_variant_stack = max(
-        (sum(1 for _, _, labels in grouped for label in labels if label == variant) for variant in ordered_variant_labels),
+        (sum(1 for e in model_entries if e.label == variant) for variant in ordered_variant_labels),
         default=0,
     )
-    base_width = 7.5 if any(len(group_paths) > 3 for _, group_paths, _ in grouped) or max_variant_stack > 3 else 6.0
+    base_width = 7.5 if max_group_size > 3 or max_variant_stack > 3 else 6.0
     fig_width = base_width * ncols
     fig_height = 4.5 * nrows
+
+    _apply_plot_rcparams(plt)
     fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(fig_width, fig_height))
     if hasattr(axes, "flat"):
         axes_list = list(axes.flat)
@@ -1392,44 +1628,41 @@ def generate_chi_figure(
     for idx, variant_label in enumerate(ordered_variant_labels):
         variant_color_map[variant_label] = _label_color(variant_label, idx)
 
-    for idx_group, (prefix, group_paths, display_labels) in enumerate(grouped):
+    for idx_group, prefix in enumerate(sorted_prefixes):
         ax = axes_list[idx_group]
         ax.set_axisbelow(True)
         ax.grid(False)
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
 
-        for data_path, label in zip(group_paths, display_labels):
-            r_vals, chir_mag_vals = _load_r_chir_mag(data_path)
-            legend_label = label if label else data_path.stem
-            color = variant_color_map.get(legend_label, _label_color(legend_label, 0))
-            ax.plot(r_vals, chir_mag_vals, label=legend_label, linewidth=3.0, color=color)
-            variant_series.setdefault(legend_label, []).append((r_vals, chir_mag_vals))
+        for entry in by_prefix[prefix]:
+            color = variant_color_map.get(entry.label, _label_color(entry.label, 0))
+            ax.plot(entry.r_vals, entry.chir_mag_vals, label=entry.label, linewidth=3.0, color=color)
+            variant_series.setdefault(entry.label, []).append((entry.r_vals, entry.chir_mag_vals))
 
         seen_exp_paths: set[Path] = set()
-        for key in _model_prefix_match_keys(prefix):
-            exp_series = exp_by_key.get(key, [])
-            for exp_path, r_vals, chir_mag_vals in exp_series:
-                if exp_path in seen_exp_paths:
-                    continue
-                seen_exp_paths.add(exp_path)
-                ax.plot(
-                    r_vals,
-                    chir_mag_vals,
-                    label=f"exp {_exp_legend_label(exp_path)}",
-                    linewidth=2.5,
-                    color="salmon",
-                    linestyle="-",
-                    alpha=0.9,
-                )
+        for exp_entry in exp_by_prefix.get(prefix, []):
+            if exp_entry.path in seen_exp_paths:
+                continue
+            seen_exp_paths.add(exp_entry.path)
+            ax.plot(
+                exp_entry.r_vals,
+                exp_entry.chir_mag_vals,
+                label=exp_entry.label,
+                linewidth=2.5,
+                color="salmon",
+                linestyle="-",
+                alpha=0.9,
+            )
 
-        subplot_title = _subplot_title_from_prefix(prefix) if prefix else group_paths[0].stem
+        subplot_title = _subplot_title_from_prefix(prefix) if prefix else (by_prefix[prefix][0].path.stem if by_prefix[prefix] else prefix)
         ax.set_title(subplot_title)
         ax.set_xlabel(r"R ($\AA$)")
         ax.set_ylabel(r"$|\chi(R)|$")
         ax.set_xlim(0.0, 6.0)
 
-        if len(group_paths) > 3:
+        group_size = len(by_prefix[prefix])
+        if group_size > 3:
             ax.legend(loc="center left", bbox_to_anchor=(1.02, 0.5), fontsize=14)
         else:
             ax.legend(loc="upper right", fontsize=14)
@@ -1458,22 +1691,18 @@ def generate_chi_figure(
         exp_ax.spines["top"].set_visible(False)
         exp_ax.spines["right"].set_visible(False)
         seen_exp_labels: set[str] = set()
-        for exp_series in exp_by_key.values():
-            for exp_path, r_vals, chir_mag_vals in exp_series:
-                exp_label = _exp_legend_label(exp_path)
-                if exp_label in seen_exp_labels:
-                    label = None
-                else:
-                    label = exp_label
-                    seen_exp_labels.add(exp_label)
-                exp_ax.plot(
-                    r_vals,
-                    chir_mag_vals,
-                    linewidth=2.8,
-                    color="salmon",
-                    alpha=0.9,
-                    label=label,
-                )
+        for exp_entry in exp_entries:
+            label_to_use = exp_entry.label if exp_entry.label not in seen_exp_labels else None
+            if label_to_use:
+                seen_exp_labels.add(label_to_use)
+            exp_ax.plot(
+                exp_entry.r_vals,
+                exp_entry.chir_mag_vals,
+                linewidth=2.8,
+                color="salmon",
+                alpha=0.9,
+                label=label_to_use,
+            )
         exp_ax.set_title("Experimental")
         exp_ax.set_xlabel(r"R ($\AA$)")
         exp_ax.set_ylabel(r"$|\chi(R)|$")
@@ -1494,44 +1723,22 @@ def generate_chi_figure(
     return out_path
 
 
-def generate_first_shell_distance_figure(parent_dir: Path) -> tuple[Path, int]:
-    summaries: list[DwDistanceSummary] = []
-    skipped = 0
-
-    for child_dir in iter_child_dirs(parent_dir):
-        try:
-            dw_path = find_dw_file(child_dir)
-        except FileNotFoundError:
-            skipped += 1
-            continue
-
-        distances = _parse_first_shell_distances(dw_path)
-        if not distances:
-            skipped += 1
-            print(f"[skip] {dw_path}: no first-shell (group=nearest) distances found")
-            continue
-
-        prefix, suffix = split_prefix_suffix(child_dir.name)
-        if "h-only" in suffix.strip().lower():
-            pass
-            # continue
-        summaries.append(
-            DwDistanceSummary(
-                prefix=prefix,
-                suffix=suffix,
-                mean_distance=float(np.mean(distances)),
-                std_distance=float(np.std(distances)),
-                n_points=len(distances),
-                distances=list(distances),
-                source_dir=child_dir,
-            )
-        )
-
+def _generate_summary_grid(
+    parent_dir: Path,
+    summaries: list[DwDistanceSummary] | list[DwFactorSummary],
+    skipped: int,
+    *,
+    mean_getter,
+    std_getter,
+    values_getter,
+    y_label: str,
+    out_name_prefix: str,
+) -> tuple[Path, int]:
     if not summaries:
-        raise ValueError("No first-shell distance summaries could be built from dw*.dat files.")
+        raise ValueError(f"No summaries found for {out_name_prefix}.")
 
     _apply_plot_rcparams(plt)
-    by_prefix: dict[str, list[DwDistanceSummary]] = {}
+    by_prefix: dict[str, list] = {}
     for summary in summaries:
         by_prefix.setdefault(summary.prefix, []).append(summary)
 
@@ -1550,16 +1757,15 @@ def generate_first_shell_distance_figure(parent_dir: Path) -> tuple[Path, int]:
         items = sorted(by_prefix[prefix], key=lambda it: suffix_sort_key(it.suffix))
 
         x_vals = list(range(len(items)))
-        y_vals = [it.mean_distance for it in items]
-        y_errs = [it.std_distance for it in items]
-        x_labels = [it.suffix if it.suffix else r"C$\alpha$ fixed" for it in items]
+        x_labels = [_legend_label_from_suffix(it.suffix) for it in items]
 
         for x, item in zip(x_vals, items):
             marker = ">" if _is_h_only_variant(item.suffix) else "o"
-            if item.distances:
+            raw_values = values_getter(item)
+            if raw_values:
                 ax.scatter(
-                    [x + 0.05] * len(item.distances),
-                    item.distances,
+                    [x + 0.05] * len(raw_values),
+                    raw_values,
                     marker=marker,
                     color="#D3D3D3",
                     edgecolors="none",
@@ -1569,8 +1775,8 @@ def generate_first_shell_distance_figure(parent_dir: Path) -> tuple[Path, int]:
                 )
             ax.errorbar(
                 x,
-                item.mean_distance,
-                yerr=item.std_distance,
+                mean_getter(item),
+                yerr=std_getter(item),
                 fmt=marker,
                 color="#333333",
                 ecolor="#333333",
@@ -1584,7 +1790,7 @@ def generate_first_shell_distance_figure(parent_dir: Path) -> tuple[Path, int]:
         ax.set_title(format_prefix_label_with_pdb(prefix))
         ax.set_xticks(x_vals)
         ax.set_xticklabels(x_labels, rotation=25, ha="right")
-        ax.set_ylabel(r"First-shell distance ($\AA$)")
+        ax.set_ylabel(y_label)
         ax.grid(alpha=0.2)
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
@@ -1595,119 +1801,41 @@ def generate_first_shell_distance_figure(parent_dir: Path) -> tuple[Path, int]:
         ax.remove()
 
     fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.96))
-
     dir_suffix = parent_dir.name.replace(" ", "")
-    out_path = parent_dir / f"dw_first_shell_distance_grid-{dir_suffix}.png"
+    out_path = parent_dir / f"{out_name_prefix}-{dir_suffix}.png"
     fig.savefig(out_path, dpi=300, bbox_inches="tight", pad_inches=0.1)
     plt.close(fig)
     return out_path, skipped
 
 
-def generate_first_shell_dw_figure(parent_dir: Path) -> tuple[Path, int]:
-    summaries: list[DwFactorSummary] = []
-    skipped = 0
+def generate_first_shell_distance_figure(parent_dir: Path, registry: "SourceRegistry") -> tuple[Path, int]:
+    summaries = registry.distance_summaries
+    skipped = registry.distance_skipped
+    return _generate_summary_grid(
+        parent_dir,
+        summaries,
+        skipped,
+        mean_getter=lambda item: item.mean_distance,
+        std_getter=lambda item: item.std_distance,
+        values_getter=lambda item: item.distances,
+        y_label=r"First-shell distance ($\AA$)",
+        out_name_prefix="dw_first_shell_distance_grid",
+    )
 
-    for child_dir in iter_child_dirs(parent_dir):
-        try:
-            dw_path = find_dw_file(child_dir)
-        except FileNotFoundError:
-            skipped += 1
-            continue
 
-        dw_values = _parse_first_shell_dw_factors(dw_path)
-        if not dw_values:
-            skipped += 1
-            print(f"[skip] {dw_path}: no first-shell (group=nearest) DW factors found")
-            continue
-
-        prefix, suffix = split_prefix_suffix(child_dir.name)
-        if "h-only" in suffix.strip().lower():
-            pass
-            # continue
-        summaries.append(
-            DwFactorSummary(
-                prefix=prefix,
-                suffix=suffix,
-                mean_dw=float(np.mean(dw_values)),
-                std_dw=float(np.std(dw_values)),
-                n_points=len(dw_values),
-                dw_values=list(dw_values),
-                source_dir=child_dir,
-            )
-        )
-
-    if not summaries:
-        raise ValueError("No first-shell DW-factor summaries could be built from dw*.dat files.")
-
-    _apply_plot_rcparams(plt)
-    by_prefix: dict[str, list[DwFactorSummary]] = {}
-    for summary in summaries:
-        by_prefix.setdefault(summary.prefix, []).append(summary)
-
-    sorted_prefixes = sorted(by_prefix)
-    n_plots = len(sorted_prefixes)
-    ncols = 3
-    nrows = math.ceil(n_plots / ncols)
-    fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(5.0 * ncols, 4.6 * nrows), sharey=False)
-    if hasattr(axes, "flat"):
-        axes_list = list(axes.flat)
-    else:
-        axes_list = [axes]
-
-    for idx, prefix in enumerate(sorted_prefixes):
-        ax = axes_list[idx]
-        items = sorted(by_prefix[prefix], key=lambda it: suffix_sort_key(it.suffix))
-
-        x_vals = list(range(len(items)))
-        x_labels = [it.suffix if it.suffix else r"C$\alpha$ fixed" for it in items]
-
-        for x, item in zip(x_vals, items):
-            marker = ">" if _is_h_only_variant(item.suffix) else "o"
-            if item.dw_values:
-                ax.scatter(
-                    [x + 0.05] * len(item.dw_values),
-                    item.dw_values,
-                    marker=marker,
-                    color="#D3D3D3",
-                    edgecolors="none",
-                    s=58,
-                    alpha=0.85,
-                    zorder=1,
-                )
-            ax.errorbar(
-                x,
-                item.mean_dw,
-                yerr=item.std_dw,
-                fmt=marker,
-                color="#333333",
-                ecolor="#333333",
-                elinewidth=1.8,
-                capsize=4,
-                markersize=8,
-                alpha=0.9,
-                zorder=4,
-            )
-
-        ax.set_title(format_prefix_label_with_pdb(prefix))
-        ax.set_xticks(x_vals)
-        ax.set_xticklabels(x_labels, rotation=25, ha="right")
-        ax.set_ylabel(r"First-shell DW factor ($\sigma^2_{FEFF}$)")
-        ax.grid(alpha=0.2)
-        ax.spines["top"].set_visible(False)
-        ax.spines["right"].set_visible(False)
-        if x_vals:
-            ax.set_xlim(-0.5, len(x_vals) - 0.5)
-
-    for ax in axes_list[n_plots:]:
-        ax.remove()
-
-    fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.96))
-
-    dir_suffix = parent_dir.name.replace(" ", "")
-    out_path = parent_dir / f"dw_first_shell_dw_grid-{dir_suffix}.png"
-    fig.savefig(out_path, dpi=300, bbox_inches="tight", pad_inches=0.1)
-    plt.close(fig)
-    return out_path, skipped
+def generate_first_shell_dw_figure(parent_dir: Path, registry: "SourceRegistry") -> tuple[Path, int]:
+    summaries = registry.dw_factor_summaries
+    skipped = registry.dw_factor_skipped
+    return _generate_summary_grid(
+        parent_dir,
+        summaries,
+        skipped,
+        mean_getter=lambda item: item.mean_dw,
+        std_getter=lambda item: item.std_dw,
+        values_getter=lambda item: item.dw_values,
+        y_label=r"First-shell DW factor ($\sigma^2_{FEFF}$)",
+        out_name_prefix="dw_first_shell_dw_grid",
+    )
 
 
 def main() -> int:
@@ -1743,30 +1871,6 @@ def main() -> int:
         help="Group first-shell and matched Cα metrics by coordinating atom type (S vs N).",
     )
     parser.add_argument(
-        "--variance-ymin",
-        type=float,
-        default=None,
-        help="Optional lower y-limit for first-shell variance panel (left column only).",
-    )
-    parser.add_argument(
-        "--variance-ymax",
-        type=float,
-        default=None,
-        help="Optional upper y-limit for first-shell variance panel (left column only).",
-    )
-    parser.add_argument(
-        "--total-ymin",
-        type=float,
-        default=None,
-        help="Optional lower y-limit for first-shell total-disorder panel (left column only).",
-    )
-    parser.add_argument(
-        "--total-ymax",
-        type=float,
-        default=None,
-        help="Optional upper y-limit for first-shell total-disorder panel (left column only).",
-    )
-    parser.add_argument(
         "--chi-pattern",
         action="append",
         default=["chi_R*.dat", "chi-R*.dat"],
@@ -1795,14 +1899,6 @@ def main() -> int:
         raise SystemExit("--variant-separation must be >= 0")
     if args.atom_type_separation < 0:
         raise SystemExit("--atom-type-separation must be >= 0")
-    if args.variance_ymin is not None and args.variance_ymax is not None and args.variance_ymin >= args.variance_ymax:
-        raise SystemExit("--variance-ymin must be < --variance-ymax")
-    if args.variance_ymax is not None and args.variance_ymax <= 0:
-        raise SystemExit("--variance-ymax must be > 0")
-    if args.total_ymin is not None and args.total_ymax is not None and args.total_ymin >= args.total_ymax:
-        raise SystemExit("--total-ymin must be < --total-ymax")
-    if args.total_ymax is not None and args.total_ymax <= 0:
-        raise SystemExit("--total-ymax must be > 0")
 
     child_dirs = iter_child_dirs(parent_dir)
     if not child_dirs:
@@ -1832,15 +1928,19 @@ def main() -> int:
         f"matched {matched_atoms} atom annotation(s)."
     )
 
+    # Build the data registry once — all four plot generators read from it.
+    registry = build_registry(
+        parent_dir,
+        chi_patterns=args.chi_pattern,
+        exp_data_paths=args.exp_data,
+    )
+
     try:
         dw_volume_path, dw_distance_path, dw_skipped = generate_dw_figures(
             parent_dir,
+            registry,
             variant_separation=args.variant_separation,
             group_by_atom_type=args.group_by_atom_type,
-            variance_ymin=args.variance_ymin,
-            variance_ymax=args.variance_ymax,
-            total_ymin=args.total_ymin,
-            total_ymax=args.total_ymax,
             atom_type_separation=args.atom_type_separation,
         )
         print(f"[ok] Wrote figure: {dw_volume_path}")
@@ -1852,6 +1952,7 @@ def main() -> int:
     try:
         chi_path = generate_chi_figure(
             parent_dir,
+            registry,
             patterns=args.chi_pattern,
             exp_data_paths=args.exp_data,
         )
@@ -1860,14 +1961,14 @@ def main() -> int:
         print(f"[skip] chi(R) figure: {exc}")
 
     try:
-        first_shell_path, distance_skipped = generate_first_shell_distance_figure(parent_dir)
+        first_shell_path, distance_skipped = generate_first_shell_distance_figure(parent_dir, registry)
         print(f"[ok] Wrote figure: {first_shell_path}")
         print(f"[ok] First-shell distance figure skipped {distance_skipped} folder(s).")
     except ValueError as exc:
         print(f"[skip] first-shell distance figure: {exc}")
 
     try:
-        first_shell_dw_path, dw_factor_skipped = generate_first_shell_dw_figure(parent_dir)
+        first_shell_dw_path, dw_factor_skipped = generate_first_shell_dw_figure(parent_dir, registry)
         print(f"[ok] Wrote figure: {first_shell_dw_path}")
         print(f"[ok] First-shell DW-factor figure skipped {dw_factor_skipped} folder(s).")
     except ValueError as exc:

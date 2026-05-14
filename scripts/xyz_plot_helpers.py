@@ -2192,7 +2192,12 @@ def plot_ca_volume_vs_coord_distance_scatter_by_sequence(
 
 
 def find_xyz_files(directory: Path) -> List[Path]:
-    return sorted([p for p in directory.glob("*.xyz") if p.is_file()])
+    # Skip extended-environment XYZ files written by scripts/build_extended_xyz.py;
+    # they share the .xyz extension but are derived data, not source structures.
+    return sorted(
+        p for p in directory.glob("*.xyz")
+        if p.is_file() and not p.stem.endswith("-extended")
+    )
 
 
 def _has_glob(pattern: str) -> bool:

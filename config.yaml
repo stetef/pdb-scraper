@@ -1,7 +1,7 @@
 search_parameters:
   metal_ion: "ZN"
-  # resolution_cutoff: 2.0
-  # experimental_method: "X-RAY DIFFRACTION"
+  resolution_cutoff: 2.0
+  experimental_method: "X-RAY DIFFRACTION"
   polymer_type: null 
 
 processing:
@@ -9,15 +9,15 @@ processing:
   parallel_workers: 4
   rate_limit_delay: 0.1
   max_downloads: 1500
-  cutoff: 2.6
+  cutoff: 3.1
   selection_radius: 3.5
   target: "ZN"
   metals_excluded: []
-  must_have: "S>=2,N>=2"  # change for different ligand reqs
+  must_have: "N>=4"  # change for different ligand reqs
   include_waters: false
 
 output:
-  base_output_dir: "./data/conformer-analysis/"
+  base_output_dir: "./data/large-cys-his-datasets/4cys-large/"
   save_matching_structures: true
 
 validation:
@@ -26,11 +26,7 @@ validation:
   ligand_requirements:  # change for different ligand reqs
     - resname: CYS
       atom_names: [SG]
-      count: 2
-    - resname: HIS
-      atom_names: [ND1, NE2]
-      count: 2
+      count: 4
 
-input_mode: "list_file"
-input_data: ["exp-ids.txt"]
+input_mode: "search"
 log_level: "INFO"

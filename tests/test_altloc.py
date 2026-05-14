@@ -54,7 +54,7 @@ def test_build_altloc_case_3(tmp_path, monkeypatch):
 
     calls = []
 
-    def fake_write_xyz(path, pdb_id, cluster_index, target, cutoff, origin_kind, centroid_pt, atoms, origin_atom, resolution_angs, extra_comment=""):
+    def fake_write_xyz(path, pdb_id, cluster_index, target, cutoff, origin_kind, centroid_pt, atoms, origin_atom, resolution_angs, extra_comment="", **kwargs):
         calls.append((path, pdb_id, extra_comment, [a.serial for a in atoms]))
 
     monkeypatch.setattr("scrape_pdb.altloc.write_xyz", fake_write_xyz)
@@ -65,6 +65,7 @@ def test_build_altloc_case_3(tmp_path, monkeypatch):
         pdb_id="1abc",
         center=center,
         selected_atoms_raw=selected,
+        all_atoms=selected,
         raw_groups=G,
         cutoff=5.0,
         out_dir=tmp_path,
@@ -112,7 +113,7 @@ def test_build_altloc_case_1_and_2(tmp_path, monkeypatch):
 
     calls = []
 
-    def fake_write_xyz(path, pdb_id, cluster_index, target, cutoff, origin_kind, centroid_pt, atoms, origin_atom, resolution_angs, extra_comment=""):
+    def fake_write_xyz(path, pdb_id, cluster_index, target, cutoff, origin_kind, centroid_pt, atoms, origin_atom, resolution_angs, extra_comment="", **kwargs):
         calls.append((path, extra_comment, [a.serial for a in atoms]))
 
     monkeypatch.setattr("scrape_pdb.altloc.write_xyz", fake_write_xyz)
@@ -122,6 +123,7 @@ def test_build_altloc_case_1_and_2(tmp_path, monkeypatch):
         pdb_id="1def",
         center=cA,
         selected_atoms_raw=selected,
+        all_atoms=selected,
         raw_groups=G,
         cutoff=5.0,
         out_dir=tmp_path,
@@ -157,6 +159,7 @@ def test_build_altloc_case_1_and_2(tmp_path, monkeypatch):
         pdb_id="1ghi",
         center=cA,
         selected_atoms_raw=[n1A, n1B, n2A, n2_unlabeled],
+        all_atoms=[n1A, n1B, n2A, n2_unlabeled],
         raw_groups=G2,
         cutoff=5.0,
         out_dir=tmp_path,

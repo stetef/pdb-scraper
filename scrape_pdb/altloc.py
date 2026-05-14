@@ -42,6 +42,7 @@ def build_altloc_files_for_center(
         pdb_id: str,
         center: Atom,
         selected_atoms_raw: list[Atom],
+    all_atoms: Optional[list[Atom]],
         raw_groups: dict[tuple[str,str,str,str], dict[str,Atom]],
         cutoff: float,
         out_dir: Path | str,
@@ -125,7 +126,21 @@ def build_altloc_files_for_center(
             xyz_name = f"{base_name_common}_{alt_tag}.xyz"
             xyz_path = str(Path(out_dir) / "xyz_files" / xyz_name)
             extra = f"CLUSTER_TYPE={cluster_type} ALTLOC_CASE=3 ALTLOC_LABEL={lab}"
-            write_xyz(xyz_path, pdb_id, cluster_index, target_upper, cutoff, origin_kind, centroid_pt, chosen_atoms, center, resolution_angs, extra_comment=extra)
+            write_xyz(
+                xyz_path,
+                pdb_id,
+                cluster_index,
+                target_upper,
+                cutoff,
+                origin_kind,
+                centroid_pt,
+                chosen_atoms,
+                center,
+                resolution_angs,
+                extra_comment=extra,
+                coord_residue_keys=coord_residue_keys,
+                pc_source_atoms=(all_atoms if all_atoms is not None else chosen_atoms),
+            )
             written.append(xyz_path)
         return written
 
@@ -175,7 +190,21 @@ def build_altloc_files_for_center(
                 xyz_name = f"{base_name_common}_{alt_tag}.xyz"
                 xyz_path = str(Path(out_dir) / "xyz_files" / xyz_name)
                 extra = f"CLUSTER_TYPE={cluster_type} ALTLOC_CASE=1 ALTLOC_LABEL={lab}"
-                write_xyz(xyz_path, pdb_id, cluster_index, target_upper, cutoff, origin_kind, centroid_pt, chosen_atoms, origin, resolution_angs, extra_comment=extra)
+                write_xyz(
+                    xyz_path,
+                    pdb_id,
+                    cluster_index,
+                    target_upper,
+                    cutoff,
+                    origin_kind,
+                    centroid_pt,
+                    chosen_atoms,
+                    origin,
+                    resolution_angs,
+                    extra_comment=extra,
+                    coord_residue_keys=coord_residue_keys,
+                    pc_source_atoms=(all_atoms if all_atoms is not None else chosen_atoms),
+                )
                 written.append(xyz_path)
             return written
         else:
@@ -211,7 +240,21 @@ def build_altloc_files_for_center(
                 xyz_name = f"{base_name_common}_{alt_tag}.xyz"
                 xyz_path = str(Path(out_dir) / "xyz_files" / xyz_name)
                 extra = f"CLUSTER_TYPE={cluster_type} ALTLOC_CASE=2 ALTLOC_LABEL={lab}"
-                write_xyz(xyz_path, pdb_id, cluster_index, target_upper, cutoff, origin_kind, centroid_pt, chosen_atoms, origin, resolution_angs, extra_comment=extra)
+                write_xyz(
+                    xyz_path,
+                    pdb_id,
+                    cluster_index,
+                    target_upper,
+                    cutoff,
+                    origin_kind,
+                    centroid_pt,
+                    chosen_atoms,
+                    origin,
+                    resolution_angs,
+                    extra_comment=extra,
+                    coord_residue_keys=coord_residue_keys,
+                    pc_source_atoms=(all_atoms if all_atoms is not None else chosen_atoms),
+                )
                 written.append(xyz_path)
             return written
 

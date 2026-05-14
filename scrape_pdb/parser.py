@@ -469,6 +469,7 @@ def _process_single_pdb(
             pdb_id=base_id,
             center=center_for_alt,
             selected_atoms_raw=selected_union_expanded,
+            all_atoms=atoms,
             raw_groups=raw_groups,
             cutoff=config.selection_radius,
             out_dir=config.output_dir,
@@ -677,7 +678,9 @@ def _process_single_pdb(
                     if not wrote_xyz:
                         write_xyz(xyz_path, base_id, cluster_counter, target_upper, config.selection_radius,
                                   ("centroid" if len(centers)>1 else "single_center"), c_centroid,
-                                  selected, origin_atom, resolution_angs, extra_comment=extra)
+                                  selected, origin_atom, resolution_angs, extra_comment=extra,
+                                  coord_residue_keys=coord_residue_keys,
+                                  pc_source_atoms=atoms)
                         written_paths.append(xyz_path)
                         wrote_xyz = True
                     write_clusters_csv_row([
@@ -727,7 +730,9 @@ def _process_single_pdb(
                     continue
                 write_xyz(xyz_path, base_id, cluster_counter, target_upper, config.selection_radius,
                           ("centroid" if len(centers)>1 else "single_center"), c_centroid,
-                          selected, origin_atom, resolution_angs, extra_comment=extra)
+                          selected, origin_atom, resolution_angs, extra_comment=extra,
+                          coord_residue_keys=coord_residue_keys,
+                          pc_source_atoms=atoms)
                 written_paths.append(xyz_path)
                 other = ""
                 if comp_type == "multi_hetero":
