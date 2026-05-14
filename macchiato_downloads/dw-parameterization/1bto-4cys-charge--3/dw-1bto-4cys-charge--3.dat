@@ -1,0 +1,12 @@
+# Derived from xmu.dat nlegs=2 reff distances matched to feff.inp ATOMS
+# Closest four atoms to Zn/origin
+group symbol x y z distance sig2_tot atom_index
+nearest S -1.16230 -2.13560 0.37174 2.45966 0.00427 1
+nearest S 0.14304 0.82697 -2.32872 2.47533 0.00442 2
+nearest S 2.29402 -0.95181 -0.04127 2.48398 0.00437 3
+nearest S 0.47106 1.47417 1.95737 2.49528 0.00478 4
+# CA atoms from 1bto-4cys-charge--3_comments.txt, mapped from Zn-centered corvus-begin-1bto-4cys-charge--3.xyz to FEFF ATOMS
+ca C 0.10696 -4.05170 -1.24036 4.23866 0.01077 18
+ca C -1.07098 3.81181 1.91232 4.39703 0.00957 23
+ca C -1.02296 3.36098 -2.50189 4.31301 0.00960 21
+ca C 4.15053 0.81961 1.07990 4.36633 0.00925 22

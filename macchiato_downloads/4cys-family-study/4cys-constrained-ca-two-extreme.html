@@ -1,0 +1,52 @@
+<div id="hover-bar">Hover over a structure to see its label</div>
+<style>body{margin:0;padding-top:44px;font-family:Arial,Helvetica,sans-serif;}#hover-bar{position:fixed;top:0;left:0;right:0;height:44px;background:#111;color:#fff;display:flex;align-items:center;padding:0 16px;box-sizing:border-box;font-size:14px;z-index:9999;}</style>
+<div id="3dmolviewer_17722258607268732"  style="position: relative; width: 900px; height: 700px;">
+        <p id="3dmolwarning_17722258607268732" style="background-color:#ffcccc;color:black">3Dmol.js failed to load for some reason.  Please check your browser console for error messages.<br></p>
+        </div>
+<script>
+
+var loadScriptAsync = function(uri){
+  return new Promise((resolve, reject) => {
+    //this is to ignore the existence of requirejs amd
+    var savedexports, savedmodule;
+    if (typeof exports !== 'undefined') savedexports = exports;
+    else exports = {}
+    if (typeof module !== 'undefined') savedmodule = module;
+    else module = {}
+
+    var tag = document.createElement('script');
+    tag.src = uri;
+    tag.async = true;
+    tag.onload = () => {
+        exports = savedexports;
+        module = savedmodule;
+        resolve();
+    };
+  var firstScriptTag = document.getElementsByTagName('script')[0];
+  firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+});
+};
+
+if(typeof $3Dmolpromise === 'undefined') {
+$3Dmolpromise = null;
+  $3Dmolpromise = loadScriptAsync('https://cdn.jsdelivr.net/npm/3dmol@2.5.4/build/3Dmol-min.js');
+}
+
+var viewer_17722258607268732 = null;
+var warn = document.getElementById("3dmolwarning_17722258607268732");
+if(warn) {
+    warn.parentNode.removeChild(warn);
+}
+$3Dmolpromise.then(function() {
+viewer_17722258607268732 = $3Dmol.createViewer(document.getElementById("3dmolviewer_17722258607268732"),{backgroundColor:"white"});
+viewer_17722258607268732.zoomTo();
+	viewer_17722258607268732.addModel("33\nCoordinates from ORCA-job Cx2Cx17Cx2C-LLHH-13sb-cluster2 E -3719.910773098694\n  C           3.35199999830960     -1.87299999942636     -2.54699999809278\n  C           2.69515526601924     -0.92028027190231     -1.57081377150267\n  S           1.64777468625824     -1.78956392712929     -0.35402828499530\n  C          -2.42499999981785     -1.74300000034429     -2.75699999981657\n  C          -2.61209231417621     -0.51314486231546     -1.88721813272258\n  S          -1.14418867388018      0.57475988376011     -1.78258429119806\n  C           3.73900000119661      1.47800000032751      1.56399999991610\n  C           2.62848881836175      2.05076431205303      0.70035801851511\n  S           0.94522515008106      1.69645224855648      1.32475877909808\n  C          -0.66499999968836     -0.84900000055686      4.15299999799324\n  C          -0.57376563204237     -1.75859461772073      2.94432733565841\n  S          -1.58425681403557     -1.18630153020670      1.53345895564454\n  Zn          0.01776641529261     -0.15676617821535      0.15322685574831\n  H           3.98891799969286     -1.33057330688047     -3.25368292011325\n  H           2.60166185674475     -2.42514489153399     -3.11878680807597\n  H           3.97494962674766     -2.60264669957684     -2.02259546835029\n  H           2.07485811625193     -0.19970472545644     -2.11063856747451\n  H           3.46041931151344     -0.35084912768108     -1.03803113956308\n  H          -3.34488322999121     -2.33629311262443     -2.79411610520888\n  H          -1.62565429406345     -2.37713033940331     -2.36389663172005\n  H          -2.15742614727367     -1.46284443891757     -3.77903184640941\n  H          -2.88995307417117     -0.81358669951262     -0.87444758159237\n  H          -3.43277706417920      0.09343529229184     -2.27928802799177\n  H           4.72201941779922      1.74737621101108      1.16293895204899\n  H           3.67385285773094      0.38741763267411      1.60551104118809\n  H           3.67172266003179      1.85701917989722      2.58688079269126\n  H           2.73083323295280      3.13780643156013      0.64531653039341\n  H           2.71341017773101      1.67255772866333     -0.31924262823188\n  H          -0.06960664269814     -1.24236703063189      4.98444899172801\n  H          -1.70002787156744     -0.75411559882909      4.49133240689370\n  H          -0.29622675648655      0.15110746954914      3.91290305206826\n  H           0.46471966232870     -1.84605768613614      2.61536590341034\n  H          -0.91158921094260     -2.76414859467894      3.20877596173904\n","xyz");
+	viewer_17722258607268732.setStyle({},{"stick": {"radius": 0.09, "colorscheme": "#1f77b4"}, "sphere": {"scale": 0.12, "colorscheme": "#1f77b4"}});
+	viewer_17722258607268732.addModel("33\nCoordinates from ORCA-job Cx5Cx9Cx2C-LLHH-1dsz-cluster2 E -3719.912204545732\n  C          -3.32400000001190     -2.02599999587609      1.79099999666256\n  C          -3.36207120388753     -0.65230315225457      1.15340974407634\n  S          -2.02050051758215      0.45454774512203      1.70625970979737\n  C           2.69199999661854      3.03799999945948     -1.08399999974151\n  C           2.28206319291239      1.61166852958590     -0.78043020887573\n  S           1.47754841012572      1.44782118131690      0.85009166206492\n  C           2.84500000493032     -3.81100000416830      0.18499999933597\n  C           2.32340057204302     -2.40232874368245      0.39291167613771\n  S           0.60515604173842     -2.38170711505334      1.01587974165496\n  C           0.25499999846304     -1.40899999941509     -4.09799999625702\n  C           0.49253159830831     -1.22841582487137     -2.61337775500849\n  S          -0.77509030739209     -0.17238483205899     -1.83761486821308\n  Zn         -0.15508869589258     -0.21470224419939      0.43644786884372\n  H          -4.15780123300498     -2.64400884948691      1.44025595938160\n  H          -3.38746402738730     -1.95297768236187      2.87964949128719\n  H          -2.39151888312037     -2.54066594139050      1.54382744089263\n  H          -3.30841572697553     -0.74272372828918      0.06561868275501\n  H          -4.30825002598732     -0.15787747934964      1.38957359443604\n  H           3.18679594393089      3.10139430554895     -2.05916602952389\n  H           3.38465218040476      3.42092497911289     -0.32951363509420\n  H           1.82037039368061      3.69741219891758     -1.10143743158282\n  H           3.15588911721059      0.95509788641814     -0.81522736405506\n  H           1.57370917757804      1.25650284619865     -1.53294636091349\n  H           3.88181265808339     -3.79375031825060     -0.16648213640574\n  H           2.24294491089128     -4.34384093060406     -0.55562191203407\n  H           2.81219544051220     -4.38286009555290      1.11622074924406\n  H           2.96013531802090     -1.86773144151744      1.10262810263788\n  H           2.36249831055908     -1.84914328416937     -0.54714369805367\n  H           1.02585794798353     -2.04786445729173     -4.54133405940986\n  H           0.27275743866070     -0.44713833078594     -4.61720029237162\n  H          -0.71780088757847     -1.87122833934805     -4.28568500680106\n  H           1.47670266263955     -0.78188207220959     -2.44785358257920\n  H           0.49358415508368     -2.19576256411731     -2.10455636007975\n","xyz");
+	viewer_17722258607268732.setStyle({},{"stick": {"radius": 0.09, "colorscheme": "#ff7f0e"}, "sphere": {"scale": 0.12, "colorscheme": "#ff7f0e"}});
+	viewer_17722258607268732.setHoverable({},true,"function(atom,viewer,event,container){var names=[\"13sb\", \"1dsz\"]; var bar=document.getElementById('hover-bar'); if(bar){bar.textContent=names[atom.model] || '';}}","function(atom,viewer,event,container){var bar=document.getElementById('hover-bar'); if(bar){bar.textContent='';}}");
+	viewer_17722258607268732.zoomTo();
+	viewer_17722258607268732.setBackgroundColor("white");
+viewer_17722258607268732.render();
+});
+</script>

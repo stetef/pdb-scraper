@@ -1,0 +1,22 @@
+group,rank,volume_A3,family,cys_dihedral_1_deg,cys_dihedral_2_deg,cys_dihedral_3_deg,cys_dihedral_4_deg,cys_dihedral_mean_deg,q_tetra_coord,q_tetra_ca,xyz_path
+smallest CA volume,1,0.1051,Cx2Cx82Cx2C-LLLL,-178.64,80.57,-33.14,73.91,-14.33,0.9623,0.4706,data/large-cys-his-datasets/4cys-large/output/xyz_files/3h5n_ZN_homo_d2.60_cluster1.xyz
+smallest CA volume,2,0.1375,Cx2Cx82Cx2C-LLLL,93.17,77.98,-175.02,-23.13,-6.75,0.9697,0.4682,data/large-cys-his-datasets/4cys-large/output/xyz_files/3h5n_ZN_homo_d2.60_cluster3.xyz
+smallest CA volume,3,0.1562,Cx2Cx73Cx4C-LLLH,-176.00,-153.47,92.00,-26.21,-65.92,0.9892,0.4728,data/large-cys-his-datasets/4cys-large/output/xyz_files/3h8v_ZN_homo_d2.60_cluster1.xyz
+smallest CA volume,4,0.3868,Cx2Cx9Cx2C-LLLL,90.45,176.75,101.70,173.63,135.63,0.9902,0.4791,data/large-cys-his-datasets/4cys-large/output/xyz_files/6wq6_ZN_homo_d2.60_cluster1.xyz
+smallest CA volume,5,0.6591,Cx2Cx9Cx2C-LLLL,179.64,92.72,91.44,174.91,134.67,0.9961,0.4804,data/large-cys-his-datasets/4cys-large/output/xyz_files/6spo_ZN_homo_d2.60_cluster1.xyz
+largest CA volume,1,47.5316,Cx12Cx5Cx3C-LLLL,-179.28,-168.80,-163.11,178.68,-83.13,0.9905,0.8540,data/large-cys-his-datasets/4cys-large/output/xyz_files/4mi5_ZN_homo_d2.60_cluster6.xyz
+largest CA volume,2,46.6565,Cx12Cx5Cx3C-LLLL,177.69,-168.50,-162.66,178.63,6.29,0.9811,0.8507,data/large-cys-his-datasets/4cys-large/output/xyz_files/4mi0_ZN_homo_d2.60_cluster4.xyz
+largest CA volume,3,46.2502,Cx53Cx5Cx3C-HLLL,164.34,164.65,-179.43,-152.47,-0.73,0.9918,0.8815,data/large-cys-his-datasets/4cys-large/output/xyz_files/1ml9_ZN_homo_d2.60_cluster2.xyz
+largest CA volume,4,45.8376,Cx32Cx5Cx3C-LLLL,167.40,-177.63,-176.66,-152.74,-84.91,0.9935,0.8210,data/large-cys-his-datasets/4cys-large/output/xyz_files/2r3a_ZN_homo_d2.60_cluster4.xyz
+largest CA volume,5,45.2607,Cx36Cx5Cx3C-LLLL,-172.32,-178.24,178.80,-156.26,-82.01,0.9935,0.7540,data/large-cys-his-datasets/4cys-large/output/xyz_files/2igq_ZN_homo_d2.60_cluster6.xyz
+smallest q_S,1,7.4502,Cx1Cx14Cx2C-LLLL,-172.65,110.63,-120.58,133.74,-12.22,0.5179,0.3863,data/large-cys-his-datasets/4cys-large/output/xyz_files/6v9p_ZN_homo_d2.60_cluster2.xyz
+smallest q_S,2,20.9530,Cx2Cx34Cx2C-LLLL,-154.27,168.35,85.69,123.51,55.82,0.5815,0.4998,data/large-cys-his-datasets/4cys-large/output/xyz_files/1xx6_ZN_homo_d2.60_cluster2.xyz
+smallest q_S,3,14.7407,Cx2Cx31Cx1Cx1L-SLLLL,124.45,-149.85,-97.27,157.33,8.66,0.5906,0.4014,data/large-cys-his-datasets/4cys-large/output/xyz_files/7d47_ZN_homo_d2.60_cluster1.xyz
+smallest q_S,4,29.8690,Cx47Cx1Cx4C-LLLL,115.83,-85.00,-102.58,75.09,0.83,0.6003,0.5874,data/large-cys-his-datasets/4cys-large/output/xyz_files/5f5e_ZN_homo_d2.60_cluster1.xyz
+smallest q_S,5,16.1723,Cx4Cx20Cx2C-SLLL,-118.22,165.31,176.85,-162.15,15.45,0.6968,0.5056,data/large-cys-his-datasets/4cys-large/output/xyz_files/1j8f_ZN_homo_d2.60_cluster3.xyz
+smallest q_S,6,11.0506,Cx2Cx37Cx4C-SLLL,138.66,157.41,171.69,-172.28,73.87,0.7077,0.4718,data/large-cys-his-datasets/4cys-large/output/xyz_files/4f4u_ZN_homo_d2.60_cluster1.xyz
+smallest q_S,7,28.4806,Cx52Cx1Cx2C-LLHH,-121.25,-92.25,92.32,136.82,3.91,0.7097,0.7843,data/large-cys-his-datasets/4cys-large/output/xyz_files/5arg_ZN_homo_d2.60_cluster1.xyz
+smallest q_S,8,27.3537,Cx52Cx1Cx2C-LLHH,-133.49,95.26,132.66,-99.27,-1.21,0.7130,0.7779,data/large-cys-his-datasets/4cys-large/output/xyz_files/5arf_ZN_homo_d2.60_cluster1.xyz
+smallest q_S,9,23.5148,Cx2Cx31Cx1C-SLLL,130.39,159.44,-92.30,154.40,87.98,0.7154,0.4023,data/large-cys-his-datasets/4cys-large/output/xyz_files/7qch_ZN_homo_d2.60_cluster1.xyz
+smallest q_S,10,6.4422,Cx2Cx20Cx2C-SLLL,166.50,-163.54,113.79,68.15,46.23,0.7201,0.4505,data/large-cys-his-datasets/4cys-large/output/xyz_files/4bvh_ZN_homo_d2.60_cluster2.xyz
+smallest q_S,11,19.7081,Cx2Cx31Cx1C-SLLL,-95.35,151.43,129.40,167.58,88.26,0.7249,0.4435,data/large-cys-his-datasets/4cys-large/output/xyz_files/7kok_ZN_homo_d2.60_cluster1.xyz

@@ -1,0 +1,8 @@
+# Derived from xmu.dat nlegs=2 reff distances matched to feff.inp ATOMS
+# Closest four atoms to Zn/origin
+group symbol x y z distance sig2_tot atom_index
+nearest S -0.80853 1.80866 1.14394 2.28770 0.00262 1
+nearest C -0.12007 1.49250 2.81205 3.18584 0.00587 2
+nearest H 0.96251 1.38284 2.73453 3.21191 0.02518 3
+nearest H -0.52488 0.55243 3.18958 3.27934 0.02642 4
+# CA atoms unavailable: No ATOM=CA entries found in /home/stetef/working-station/test-orca/dw-param-final/zn-1cys-charge-0/working-zn-1cys-charge-0/zn-1cys-charge-0_comments.txt

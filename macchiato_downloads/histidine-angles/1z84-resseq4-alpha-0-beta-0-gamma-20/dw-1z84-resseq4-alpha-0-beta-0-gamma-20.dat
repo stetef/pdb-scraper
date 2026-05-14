@@ -1,0 +1,12 @@
+# Derived from xmu.dat nlegs=2 reff distances matched to feff.inp ATOMS
+# Closest four atoms to Zn/origin
+group symbol x y z distance sig2_tot atom_index
+nearest N 0.50109 1.56789 -1.24734 2.06524 0.00304 1
+nearest N 1.79245 -0.36029 0.96960 2.06950 0.00300 2
+nearest H 0.33236 1.82618 1.32399 2.27999 0.01691 3
+nearest S -0.62053 -1.87106 -1.17652 2.29567 0.00252 4
+# CA atoms from 1z84-resseq4-alpha-0-beta-0-gamma-20_comments.txt, mapped from Zn-centered 1z84-resseq4-alpha-0-beta-0-gamma-20_clean.xyz to FEFF ATOMS
+ca C -3.38359 -0.71391 2.95193 4.54667 0.00543 33
+ca C -2.92059 -0.78291 -2.34907 3.82896 0.01041 23
+ca C 3.15441 -1.36291 -1.82707 3.89178 0.01159 25
+ca C 2.08452 3.05227 1.64284 4.04481 0.00522 26

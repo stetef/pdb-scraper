@@ -1,0 +1,8 @@
+# Derived from xmu.dat nlegs=2 reff distances matched to feff.inp ATOMS
+# Closest four atoms to Zn/origin
+group symbol x y z distance sig2_tot atom_index
+nearest N -1.23685 0.90309 -1.19493 1.94248 0.00230 1
+nearest C -2.42966 1.39478 -0.86192 2.93114 0.00316 2
+nearest C -1.04214 1.16606 -2.50016 2.94900 0.00345 3
+nearest H -2.84714 1.33446 0.13287 3.14716 0.01661 4
+# CA atoms unavailable: CA atom index 0 failed coordinate match to FEFF ATOMS: best error 0.556992 A exceeds tolerance 0.002000 A

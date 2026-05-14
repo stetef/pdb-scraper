@@ -1,0 +1,53 @@
+<html>
+<body style="margin: 0; padding: 0; display: block;">
+<div id="titlebar" style="font-family: sans-serif; padding: 10px 12px; border-bottom: 1px solid #ddd;"><div style="font-size: 16px; font-weight: 600;">Reference XYZ: 1z84-2cys2his-water.xyz</div><div id="hoverinfo" style="margin-top: 6px; font-size: 13px; color: #333; min-height: 1.2em;"></div></div>
+
+<div id="3dmolviewer_1771525437677709"  style="position: relative; width: 900px; height: 650px;">
+        <p id="3dmolwarning_1771525437677709" style="background-color:#ffcccc;color:black">3Dmol.js failed to load for some reason.  Please check your browser console for error messages.<br></p>
+        </div>
+<script>
+
+var loadScriptAsync = function(uri){
+  return new Promise((resolve, reject) => {
+    //this is to ignore the existence of requirejs amd
+    var savedexports, savedmodule;
+    if (typeof exports !== 'undefined') savedexports = exports;
+    else exports = {}
+    if (typeof module !== 'undefined') savedmodule = module;
+    else module = {}
+
+    var tag = document.createElement('script');
+    tag.src = uri;
+    tag.async = true;
+    tag.onload = () => {
+        exports = savedexports;
+        module = savedmodule;
+        resolve();
+    };
+  var firstScriptTag = document.getElementsByTagName('script')[0];
+  firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+});
+};
+
+if(typeof $3Dmolpromise === 'undefined') {
+$3Dmolpromise = null;
+  $3Dmolpromise = loadScriptAsync('https://cdn.jsdelivr.net/npm/3dmol@2.5.4/build/3Dmol-min.js');
+}
+
+var viewer_1771525437677709 = null;
+var warn = document.getElementById("3dmolwarning_1771525437677709");
+if(warn) {
+    warn.parentNode.removeChild(warn);
+}
+$3Dmolpromise.then(function() {
+viewer_1771525437677709 = $3Dmol.createViewer(document.getElementById("3dmolviewer_1771525437677709"),{backgroundColor:"white"});
+viewer_1771525437677709.zoomTo();
+	viewer_1771525437677709.addModel("47\nCoordinates from ORCA-job 1z84-2cys2his-water E -3343.014322292605\n  C          -3.42399999987938     -0.56699999999756      2.92199999935573\n  C          -1.99105202374303     -0.59788864472828      2.42848293670924\n  S          -1.52553851965095      0.95386735913526      1.58006914809333\n  C          -2.96100000066127     -0.63600000046837     -2.37899999973378\n  C          -2.49409510917154     -1.48589413026730     -1.21494988378693\n  S          -0.68178685868757     -1.70264387592992     -1.14729818154304\n  C           3.11400000002351     -1.21600000006771     -1.85699999999258\n  C           2.85869536183756     -1.93538817846853     -0.53687408968596\n  C           2.85562044511155     -1.03576012050187      0.64807803997107\n  N           1.81172687088443     -0.18519084061701      0.95368309658859\n  C           3.81955055713851     -0.88449574122793      1.60383417047767\n  C           2.14151141595471      0.45038374578230      2.06204354807333\n  N           3.34774162739885      0.05601387765347      2.48042146181447\n  C           2.31200000051713      4.01800000053364      0.80400000037063\n  C           0.89939501419955      3.61439471873046      0.39096829044308\n  C           0.80888082892328      3.05917296299756     -0.99017606224115\n  N           0.45929552068069      1.75121757227613     -1.25633413642869\n  C           1.02868752313709      3.68829714991578     -2.18413869158839\n  C           0.46513114742293      1.60354393521099     -2.56824056866832\n  N           0.80685039608514      2.75269305348902     -3.15803192525673\n  Zn         -0.00785611366630      0.17765338653233      0.01434896217229\n  H          -3.67277744259679     -1.49463616692238      3.44715885081084\n  H          -4.11980445121478     -0.44992763298327      2.08731346071747\n  H          -3.58388008631538      0.26593134253839      3.61159608941130\n  H          -1.30721902947920     -0.75503861214016      3.26637479516232\n  H          -1.84651738119588     -1.42952850914397      1.73485750467612\n  H          -4.05316948992014     -0.55574214275677     -2.38735367462424\n  H          -2.64296509317789     -1.06595890208823     -3.33195784810918\n  H          -2.54675085359820      0.37352994814817     -2.31196181410855\n  H          -2.93221590632375     -2.48496821652003     -1.27892049635556\n  H          -2.82456317936594     -1.04361511045097     -0.27260467106015\n  H           3.08158543957014     -1.92100445089354     -2.69034774870196\n  H           4.09370644611309     -0.73218321466798     -1.85436618232052\n  H           2.35826001075585     -0.44838195902867     -2.03452492776651\n  H           3.62455092344282     -2.69905550514194     -0.37996313131156\n  H           1.89727827968232     -2.45556718579519     -0.58687480182404\n  H           4.77590800515329     -1.36305577430736      1.73297932971517\n  H           1.52969348920847      1.17544854053113      2.57485927085777\n  H           3.82053680702551      0.39130824109084      3.30494854908014\n  H           2.31464468405244      4.41430115345527      1.82172575974306\n  H           2.71011711570678      4.78713564362644      0.13844686776137\n  H           2.98830601354349      3.16010871668634      0.77076050453448\n  H           0.50292824655668      2.86804999380556      1.08351824507697\n  H           0.24042777029742      4.48451839181202      0.46851754167498\n  H           1.31138102179883      4.70135786389313     -2.41693805745075\n  H           0.22756480858791      0.69456905086971     -3.09768461264787\n  H           0.87962717697024      2.90151441115976     -4.15239783681047\n","xyz");
+	viewer_1771525437677709.setStyle({},{"stick": {"radius": 0.18, "colorscheme": "Jmol"}, "sphere": {"radius": 0.33, "colorscheme": "Jmol"}});
+	viewer_1771525437677709.zoomTo();
+	viewer_1771525437677709.setHoverable({},true,"function(atom, viewer) {var labels = [\"CYS CA\", \"CYS CB\", \"CYS SG\", \"CYS CA\", \"CYS CB\", \"CYS SG\", \"HIS CA\", \"HIS CB\", \"HIS CG\", \"HIS ND1\", \"HIS CD2\", \"HIS CE1\", \"HIS NE2\", \"HIS CA\", \"HIS CB\", \"HIS CG\", \"HIS ND1\", \"HIS CD2\", \"HIS CE1\", \"HIS NE2\", \"Zn\", \"H\", \"H\", \"H\", \"H\", \"H\", \"H\", \"H\", \"H\", \"H\", \"H\", \"H\", \"H\", \"H\", \"H\", \"H\", \"H\", \"H\", \"H\", \"H\", \"H\", \"H\", \"H\", \"H\", \"H\", \"H\", \"H\"];var idx = (atom.index !== undefined) ? atom.index : (atom.serial !== undefined ? atom.serial - 1 : -1);var msg = (idx >= 0 && idx < labels.length) ? labels[idx] : '';if (!msg) { msg = (atom.elem || 'atom'); }var el = document.getElementById('hoverinfo'); if (el) { el.textContent = msg; }}","function(atom, viewer) { var el = document.getElementById('hoverinfo'); if (el) { el.textContent = ''; } }");
+viewer_1771525437677709.render();
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+3r6f CA fixed
+group atom distance sig2_tot
+nearest N  2.05188 0.00284
+nearest N  2.06033 0.00291
+nearest S  2.29081 0.00250
+nearest S  2.29185 0.00255
+
+3r6f H only
+group atom distance sig2_tot
+nearest N  2.08185 0.00311
+nearest N  2.11213 0.00336
+nearest S  2.30799 0.00259
+nearest S  2.31768 0.00268
+
+2lce CA fixed
+group atom distance sig2_tot
+nearest N  2.04390 0.00275
+nearest N  2.05507 0.00286
+nearest S  2.28915 0.00251
+nearest S  2.29537 0.00257
+
+2lce H only
+group atom distance sig2_tot
+nearest N  2.15252 0.00395
+nearest N  2.15289 0.00395
+nearest S  2.36205 0.00299
+nearest S  2.36217 0.00299

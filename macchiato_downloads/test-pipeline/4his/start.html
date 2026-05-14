@@ -1,0 +1,53 @@
+<html>
+<body style="margin: 0; padding: 0; display: block;">
+<div id="titlebar" style="font-family: sans-serif; padding: 10px 12px; border-bottom: 1px solid #ddd;"><div style="font-size: 16px; font-weight: 600;">Reference XYZ: start.xyz</div><div id="hoverinfo" style="margin-top: 6px; font-size: 13px; color: #333; min-height: 1.2em;"></div></div>
+
+<div id="3dmolviewer_1771004694567688"  style="position: relative; width: 900px; height: 650px;">
+        <p id="3dmolwarning_1771004694567688" style="background-color:#ffcccc;color:black">3Dmol.js failed to load for some reason.  Please check your browser console for error messages.<br></p>
+        </div>
+<script>
+
+var loadScriptAsync = function(uri){
+  return new Promise((resolve, reject) => {
+    //this is to ignore the existence of requirejs amd
+    var savedexports, savedmodule;
+    if (typeof exports !== 'undefined') savedexports = exports;
+    else exports = {}
+    if (typeof module !== 'undefined') savedmodule = module;
+    else module = {}
+
+    var tag = document.createElement('script');
+    tag.src = uri;
+    tag.async = true;
+    tag.onload = () => {
+        exports = savedexports;
+        module = savedmodule;
+        resolve();
+    };
+  var firstScriptTag = document.getElementsByTagName('script')[0];
+  firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+});
+};
+
+if(typeof $3Dmolpromise === 'undefined') {
+$3Dmolpromise = null;
+  $3Dmolpromise = loadScriptAsync('https://cdn.jsdelivr.net/npm/3dmol@2.5.4/build/3Dmol-min.js');
+}
+
+var viewer_1771004694567688 = null;
+var warn = document.getElementById("3dmolwarning_1771004694567688");
+if(warn) {
+    warn.parentNode.removeChild(warn);
+}
+$3Dmolpromise.then(function() {
+viewer_1771004694567688 = $3Dmol.createViewer(document.getElementById("3dmolviewer_1771004694567688"),{backgroundColor:"white"});
+viewer_1771004694567688.zoomTo();
+	viewer_1771004694567688.addModel("64\nPDB=3tio CLUSTER=2 TARGET=ZN CUTOFF=4.000 ORIGIN=single_center CENTROID=(27.287,-8.077,2.348) RESOLUTION_A=1.41 CLUSTER_TYPE=homo\nC   -3.399000   0.615000   5.554000  # RES=HIS CHAIN=A RESSEQ=91 ATOM=CA REC=ATOM\nC   -1.903000   0.530000   5.249000  # RES=HIS CHAIN=A RESSEQ=91 ATOM=CB REC=ATOM\nC   -1.576000   0.005000   3.888000  # RES=HIS CHAIN=A RESSEQ=91 ATOM=CG REC=ATOM\nN   -1.721000  -1.319000   3.541000  # RES=HIS CHAIN=A RESSEQ=91 ATOM=ND1 REC=ATOM\nC   -1.058000   0.625000   2.803000  # RES=HIS CHAIN=A RESSEQ=91 ATOM=CD2 REC=ATOM\nC   -1.300000  -1.495000   2.301000  # RES=HIS CHAIN=A RESSEQ=91 ATOM=CE1 REC=ATOM\nN   -0.893000  -0.331000   1.832000  # RES=HIS CHAIN=A RESSEQ=91 ATOM=NE2 REC=ATOM\nC    4.304000  -1.663000   1.492000  # RES=HIS CHAIN=B RESSEQ=67 ATOM=CA REC=ATOM\nC    2.781000  -1.499000   1.441000  # RES=HIS CHAIN=B RESSEQ=67 ATOM=CB REC=ATOM\nC    2.137000  -2.214000   0.289000  # RES=HIS CHAIN=B RESSEQ=67 ATOM=CG REC=ATOM\nN    1.007000  -1.747000  -0.343000  # RES=HIS CHAIN=B RESSEQ=67 ATOM=ND1 REC=ATOM\nC    2.469000  -3.367000  -0.341000  # RES=HIS CHAIN=B RESSEQ=67 ATOM=CD2 REC=ATOM\nC    0.669000  -2.578000  -1.314000  # RES=HIS CHAIN=B RESSEQ=67 ATOM=CE1 REC=ATOM\nN    1.540000  -3.569000  -1.334000  # RES=HIS CHAIN=B RESSEQ=67 ATOM=NE2 REC=ATOM\nO    2.827000   0.361000  -2.351000  # RES=VAL CHAIN=B RESSEQ=68 ATOM=O REC=ATOM\nC    0.134000   1.226000  -5.672000  # RES=HIS CHAIN=B RESSEQ=70 ATOM=CA REC=ATOM\nC   -1.244000   1.571000  -5.101000  # RES=HIS CHAIN=B RESSEQ=70 ATOM=CB REC=ATOM\nC   -1.445000   1.115000  -3.691000  # RES=HIS CHAIN=B RESSEQ=70 ATOM=CG REC=ATOM\nN   -2.543000   1.477000  -2.940000  # RES=HIS CHAIN=B RESSEQ=70 ATOM=ND1 REC=ATOM\nC   -0.690000   0.322000  -2.895000  # RES=HIS CHAIN=B RESSEQ=70 ATOM=CD2 REC=ATOM\nC   -2.455000   0.926000  -1.743000  # RES=HIS CHAIN=B RESSEQ=70 ATOM=CE1 REC=ATOM\nN   -1.341000   0.221000  -1.690000  # RES=HIS CHAIN=B RESSEQ=70 ATOM=NE2 REC=ATOM\nC    4.963000   3.281000   1.839000  # RES=HIS CHAIN=B RESSEQ=96 ATOM=CA REC=ATOM\nC    3.548000   3.857000   1.890000  # RES=HIS CHAIN=B RESSEQ=96 ATOM=CB REC=ATOM\nC    2.568000   3.116000   1.041000  # RES=HIS CHAIN=B RESSEQ=96 ATOM=CG REC=ATOM\nN    2.322000   3.442000  -0.275000  # RES=HIS CHAIN=B RESSEQ=96 ATOM=ND1 REC=ATOM\nC    1.797000   2.040000   1.315000  # RES=HIS CHAIN=B RESSEQ=96 ATOM=CD2 REC=ATOM\nC    1.440000   2.597000  -0.776000  # RES=HIS CHAIN=B RESSEQ=96 ATOM=CE1 REC=ATOM\nN    1.106000   1.736000   0.169000  # RES=HIS CHAIN=B RESSEQ=96 ATOM=NE2 REC=ATOM\nZN   0.000000   0.000000   0.000000  # RES=ZN CHAIN=B RESSEQ=185 ATOM=ZN REC=HETATM\nH  -3.540165   0.998650   6.542830\nH  -3.833153  -0.360494   5.484550\nH  -3.870492   1.266320   4.848041\nH  -1.487809   1.512245   5.336817\nH  -1.488706  -0.163968   5.950191\nH  -2.081897  -2.024443   4.125246\nH  -0.829805   1.628092   2.720791\nH  -1.291076  -2.389970   1.787216\nH   4.692178  -1.129389   2.334305\nH   4.734973  -1.273376   0.593470\nH   4.548110  -2.700727   1.583830\nH   2.368893  -1.883455   2.350540\nH   2.582275  -0.455465   1.312768\nH   3.269371  -3.978843  -0.117217\nH  -0.138112  -2.470093  -1.947995\nH   1.526719  -4.329738  -1.958773\nH   3.797000   0.361000  -2.351000\nH   2.503670  -0.330378  -1.752373\nH   0.202337   1.582254  -6.678635\nH   0.269852   0.164736  -5.659246\nH   0.892882   1.689892  -5.077188\nH  -1.988714   1.108435  -5.714461\nH  -1.321240   2.638202  -5.097184\nH  -3.277632   2.055628  -3.247807\nH   0.206482  -0.123094  -3.146464\nH  -3.140984   1.029307  -0.978947\nH   5.606576   3.859795   2.468052\nH   5.325010   3.312893   0.832605\nH   4.947899   2.267120   2.180643\nH   3.207286   3.827053   2.903862\nH   3.602208   4.854715   1.507213\nH   2.738434   4.187718  -0.764620\nH   1.738950   1.540994   2.216470\nH   1.073955   2.607196  -1.740848\n","xyz");
+	viewer_1771004694567688.setStyle({},{"stick": {"radius": 0.18, "colorscheme": "Jmol"}, "sphere": {"radius": 0.33, "colorscheme": "Jmol"}});
+	viewer_1771004694567688.zoomTo();
+	viewer_1771004694567688.setHoverable({},true,"function(atom, viewer) {var labels = [\"HIS CA\", \"HIS CB\", \"HIS CG\", \"HIS ND1\", \"HIS CD2\", \"HIS CE1\", \"HIS NE2\", \"HIS CA\", \"HIS CB\", \"HIS CG\", \"HIS ND1\", \"HIS CD2\", \"HIS CE1\", \"HIS NE2\", \"O\", \"HIS CA\", \"HIS CB\", \"HIS CG\", \"HIS ND1\", \"HIS CD2\", \"HIS CE1\", \"HIS NE2\", \"HIS CA\", \"HIS CB\", \"HIS CG\", \"HIS ND1\", \"HIS CD2\", \"HIS CE1\", \"HIS NE2\", \"ZN\", \"H\", \"H\", \"H\", \"H\", \"H\", \"H\", \"H\", \"H\", \"H\", \"H\", \"H\", \"H\", \"H\", \"H\", \"H\", \"H\", \"H\", \"H\", \"H\", \"H\", \"H\", \"H\", \"H\", \"H\", \"H\", \"H\", \"H\", \"H\", \"H\", \"H\", \"H\", \"H\", \"H\", \"H\"];var idx = (atom.index !== undefined) ? atom.index : (atom.serial !== undefined ? atom.serial - 1 : -1);var msg = (idx >= 0 && idx < labels.length) ? labels[idx] : '';if (!msg) { msg = (atom.elem || 'atom'); }var el = document.getElementById('hoverinfo'); if (el) { el.textContent = msg; }}","function(atom, viewer) { var el = document.getElementById('hoverinfo'); if (el) { el.textContent = ''; } }");
+viewer_1771004694567688.render();
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+# Derived from xmu.dat nlegs=2 reff distances matched to feff.inp ATOMS
+# Closest four atoms to Zn/origin
+group symbol x y z distance sig2_tot atom_index
+nearest S 0.06988 -1.68957 1.64135 2.35660 0.00298 1
+nearest S 1.97889 0.12011 -1.27837 2.35895 0.00300 2
+nearest S -1.73499 -0.18766 -1.59953 2.36725 0.00310 4
+nearest S -0.64684 1.98262 1.12017 2.36727 0.00310 3
+# Four farthest C atoms (CA-like endpoint carbons, distinct by geometry)
+ca_like C 4.67828 0.05242 -0.63479 4.72145 0.00615 26
+ca_like C 1.28329 -4.19258 1.63021 4.67783 0.00595 24
+ca_like C 1.69529 2.04242 2.66121 3.75866 0.01045 18
+ca_like C -0.83071 -2.73958 -2.33479 3.69413 0.00985 16
