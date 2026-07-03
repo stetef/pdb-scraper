@@ -1,7 +1,7 @@
 # Large files
 data*
 Figures/*
-macchiato_downloads/
+# macchiato_downloads/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
