@@ -1,0 +1,48 @@
+# Search-mode config: ~50 high-resolution heme structures
+#
+# Heme iron is modeled *inside* the heme ligand (comp_id HEM), not as a
+# standalone FE ion — so the search targets the HEM comp_id, while the
+# downstream clustering/validation targets the FE atom within it.
+#
+# Hit count is driven almost entirely by resolution_cutoff (calibrated
+# against the live RCSB Search API on 2026-07-21):
+#   res <= 1.00  -> 35     res <= 1.10 -> 79
+#   res <= 1.05  -> 50     res <= 1.14 -> 89
+#   res <= 1.06  -> 55     res <= 1.15 -> 104
+#   res <= 1.08  -> 65     res <= 1.18 -> 115
+#   (HEM + X-RAY DIFFRACTION)          res <= 1.20 -> 139 <--
+# Nudge resolution_cutoff up/down to grow/shrink the set.
+
+search_parameters:
+  metal_ion: "HEM"              # heme b (protoporphyrin IX). See notes below for other heme types.
+  resolution_cutoff: 1.20       # angstroms -> ~139 hits with X-ray
+  experimental_method: "X-RAY DIFFRACTION"
+  polymer_type: null            # null := all; ~all HEM entries are Protein anyway
+
+processing:
+  batch_size: 50
+  parallel_workers: 4
+  rate_limit_delay: 0.1
+  max_downloads: 160            # a bit above 139 for headroom
+  cutoff: 3.0
+  selection_radius: 4.0
+  target: "FE"                  # the metal center is the iron inside the heme
+  metals_excluded: []
+  must_have: "N>=4"             # 4 porphyrin nitrogens (add proximal His -> N>=5)
+  include_waters: false
+
+output:
+  base_output_dir: "./data/heme"
+  save_matching_structures: true
+
+validation:
+  coordination_distance_min: 1.8   # Fe-N bonds are shorter than Zn-S/N
+  coordination_distance_max: 3.0
+  ligand_requirements:
+    - resname: HEM
+      atom_names: [NA, NB, NC, ND]   # the four porphyrin ring nitrogens
+      count: 4
+
+# Enable search mode
+input_mode: "search"
+log_level: "INFO"

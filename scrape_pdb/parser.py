@@ -458,10 +458,17 @@ def _process_single_pdb(
             for a in coord_neigh_for_res:
                 coord_residue_keys.add(residue_key(a))
 
+        # Fully include ANY residue that has at least one atom within the
+        # selection radius of a center (not just the coordinating residues),
+        # so cropped clusters contain whole residues rather than clipped
+        # sidechains. Coordinating residues are a subset of this set.
+        selection_residue_keys = {residue_key(a) for a in selected_union}
+        selection_residue_keys |= coord_residue_keys
+
         selected_union_expanded = expand_selection_by_residue_keys(
             atoms,
             selected_union,
-            coord_residue_keys,
+            selection_residue_keys,
         )
 
         # Attempt Step 6 generation
@@ -485,7 +492,7 @@ def _process_single_pdb(
             coord_distance_max=config.validation.coordination_distance_max,
             coord_filters=config.coord_filters,
             ligand_requirements=config.validation.ligand_requirements,
-            coord_residue_keys=coord_residue_keys,
+            coord_residue_keys=selection_residue_keys,
         )
 
         if alt_written:
