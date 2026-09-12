@@ -20,7 +20,7 @@ import logging
 logger = logging.getLogger("pipeline.downloader")
 
 
-def fetch_pdb(pdb_id: str, dest_dir: str) -> Optional[str]:
+def fetch_pdb(pdb_id: str, dest_dir: str, timeout: int = 30) -> Optional[str]:
     """Download {id}.pdb (fallback to mmCIF) into dest_dir and return local path."""
     pdb_id = pdb_id.strip().lower()
     if not pdb_id or len(pdb_id) != 4 or not pdb_id.isalnum():
@@ -34,7 +34,7 @@ def fetch_pdb(pdb_id: str, dest_dir: str) -> Optional[str]:
     url = f"https://files.rcsb.org/download/{pdb_id}.pdb"
     try:
         req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             if resp.status == 200:
                 with open(out_path, "wb") as out:
                     out.write(resp.read())
@@ -48,7 +48,7 @@ def fetch_pdb(pdb_id: str, dest_dir: str) -> Optional[str]:
     gz_path = os.path.join(dest_dir, f"{pdb_id}.pdb.gz")
     try:
         req = urllib.request.Request(url_gz, headers={"User-Agent": USER_AGENT})
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             if resp.status == 200:
                 with open(gz_path, "wb") as out:
                     out.write(resp.read())
@@ -69,7 +69,7 @@ def fetch_pdb(pdb_id: str, dest_dir: str) -> Optional[str]:
     
     try:
         req = urllib.request.Request(url_cif, headers={"User-Agent": USER_AGENT})
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             if resp.status == 200:
                 with open(cif_gz_path, "wb") as out:
                     out.write(resp.read())

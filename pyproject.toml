@@ -1,7 +1,11 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "scrape-pdb"
-version = "0.1.0"
-description = "Search and download PDB files."
+version = "0.2.0"
+description = "Search and download PDB files; extract metal sites as EXAFS structure candidates."
 readme = "README.md"
 requires-python = ">=3.12"
 
@@ -9,7 +13,6 @@ dependencies = [
     "biopython>=1.86",
     "matplotlib>=3.10.8",
     "numpy>=2.3.5",
-    "openbabel-wheel>=3.1.1.22",
     "py3dmol>=2.5.4",
     "pydantic>=2.0",
     "pyyaml>=6.0",
@@ -19,13 +22,26 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# DFT preparation only: Open Babel adds hydrogens (add_hydrogens=True). The core
+# install and the whole EXAFS/FEFF path work without it — FEFF strips H anyway.
+dft = [
+    "openbabel-wheel>=3.1.1.22",
+]
 dev = [
     "pytest",
     "black",
     "isort",
     "flake8",
     "pre-commit",
+    # so the hydrogen-addition tests can run against a plain `.[dev]` install
+    "openbabel-wheel>=3.1.1.22",
 ]
+
+[project.scripts]
+scrape-pdb = "scrape_pdb.main:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["scrape_pdb"]
 
 [tool.black]
 line-length = 120

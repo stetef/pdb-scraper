@@ -10,7 +10,7 @@ This package implements a complete pipeline for:
 - Writing XYZ files and CSV summaries
 """
 
-__version__ = "1.0.0"
+__version__ = "0.2.0"
 __author__ = "Samantha Tetef"
 
 # Core data models
@@ -26,8 +26,12 @@ from .models import (
 # Configuration
 from .config import PipelineConfig, load_config
 
-# Main pipeline
+# Main pipeline (CLI orchestration)
 from .main import run_pipeline
+
+# Library API (EARL structure source) — see scrape_pdb.api / 04-pdb-scraper-library-spec.md
+from .site import SiteCandidate, ExtractConfig, ExtractResult, FetchError
+from .api import fetch_entry, extract_sites
 
 # Constants
 from .constants import (
@@ -53,7 +57,15 @@ __all__ = [
     
     # Main
     "run_pipeline",
-    
+
+    # Library API
+    "fetch_entry",
+    "extract_sites",
+    "SiteCandidate",
+    "ExtractConfig",
+    "ExtractResult",
+    "FetchError",
+
     # Constants
     "ALL_METALS",
     "USER_AGENT",

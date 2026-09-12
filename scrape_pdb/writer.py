@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
-"""XYZ, CSV, cache writers."""
+"""XYZ, CSV, cache writers.
+
+Open Babel (used only for hydrogen addition) is imported *lazily* so that
+``import scrape_pdb`` and the whole EXAFS extraction path work without it. It is
+only required when ``add_hydrogens=True`` (DFT preparation), which pulls in the
+optional ``dft`` extra.
+"""
+
+from __future__ import annotations
 
 from pathlib import Path
 import csv
@@ -8,8 +16,6 @@ from typing import Optional
 import os
 import tempfile
 
-from openbabel import openbabel as ob
-
 from .models import Atom
 from .constants import CLUSTERS_CSV_FIELDS, ALTLOC_REPORT_FIELDS
 from .config import PipelineConfig
@@ -17,6 +23,18 @@ from .config import PipelineConfig
 import logging
 
 logger = logging.getLogger("pipeline.writer")
+
+
+def _import_ob():
+    """Import Open Babel on demand, with a clear message if it is missing."""
+    try:
+        from openbabel import openbabel as ob
+    except ImportError as e:  # pragma: no cover - exercised only without the dft extra
+        raise ImportError(
+            "Open Babel is required for hydrogen addition (add_hydrogens=True). "
+            "Install the optional dependency, e.g. `pip install scrape-pdb[dft]`."
+        ) from e
+    return ob
 
 
 def _should_drop_backbone_atom(atom: Atom) -> bool:
@@ -42,37 +60,70 @@ def _normalize_element_symbol(symbol: str) -> str:
     return symbol[0].upper() + symbol[1:].lower()
 
 
-def _write_normalized_xyz(input_path: Path) -> Path:
-    """Write a temporary XYZ with normalized element symbols for Open Babel."""
-    lines = input_path.read_text().splitlines()
-    if len(lines) < 3:
-        raise ValueError("XYZ file is too short")
+def render_xyz_text(
+    atoms: list[Atom],
+    origin_atom: Atom,
+    *,
+    pdb_id: str,
+    cluster_index: int,
+    target: str,
+    cutoff: float,
+    origin_kind: str,
+    centroid_pt: tuple[float, float, float],
+    resolution_angs: Optional[float] = None,
+    extra_comment: str = "",
+    drop_backbone: bool = True,
+    titlecase: bool = False,
+    absorber_first: bool = False,
+) -> str:
+    """Build XYZ text with coordinates translated so ``origin_atom`` sits at (0,0,0).
 
-    header = lines[:2]
-    body = lines[2:]
+    This is the pure, side-effect-free core shared by the CLI writer and the
+    library API.
 
-    normalized_body = []
-    for line in body:
-        stripped = line.strip()
-        if not stripped:
-            normalized_body.append(line)
-            continue
-        parts = stripped.split()
-        if len(parts) < 4:
-            normalized_body.append(line)
-            continue
-        parts[0] = _normalize_element_symbol(parts[0])
-        normalized_body.append(" ".join(parts))
+    - ``drop_backbone``  : drop HIS/CYS backbone N/C/O (CLI + library default).
+    - ``titlecase``      : write "Zn" rather than "ZN" (library convention;
+                           CLI keeps raw uppercase for byte-compatible output).
+    - ``absorber_first`` : put ``origin_atom`` on the first atom line (library
+                           convention; CLI keeps original selection order).
 
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".xyz")
-    tmp_path = Path(tmp.name)
-    tmp.close()
-    tmp_path.write_text("\n".join(header + normalized_body) + "\n")
-    return tmp_path
+    Hydrogen addition is NOT done here — it is a separate on-disk step.
+    """
+    ox, oy, oz = origin_atom.coord
+
+    ordered = list(atoms)
+    if absorber_first:
+        # Move the origin atom to the front, preserving the order of the rest.
+        rest = [a for a in ordered if a.serial != origin_atom.serial]
+        head = [a for a in ordered if a.serial == origin_atom.serial]
+        ordered = head + rest
+
+    if drop_backbone:
+        ordered = _filter_backbone_atoms(ordered)
+
+    translated = [(a.element, a.x - ox, a.y - oy, a.z - oz, a) for a in ordered]
+
+    res_str = f"{resolution_angs:.2f}" if isinstance(resolution_angs, (int, float)) else "NA"
+    comment = (
+        f"PDB={pdb_id} CLUSTER={cluster_index} TARGET={target} CUTOFF={cutoff:.3f} "
+        f"ORIGIN={origin_kind} CENTROID=({centroid_pt[0]:.3f},{centroid_pt[1]:.3f},{centroid_pt[2]:.3f}) "
+        f"RESOLUTION_A={res_str}"
+    )
+    if extra_comment:
+        comment += " " + extra_comment.strip()
+
+    lines = [f"{len(translated)}", comment]
+    for elm, x, y, z, a in translated:
+        sym = _normalize_element_symbol(elm) if titlecase else elm
+        resseq_icode = f"{a.resseq}{a.icode}".strip()
+        meta = f"RES={a.resname} CHAIN={a.chain} RESSEQ={resseq_icode} ATOM={a.atom_name} REC={a.record}"
+        lines.append(f"{sym:2s}  {x: .6f}  {y: .6f}  {z: .6f}  # {meta}")
+    return "\n".join(lines) + "\n"
 
 
-def _assign_implicit_h_counts(mol: ob.OBMol) -> None:
+def _assign_implicit_h_counts(mol) -> None:
     """Approximate implicit H counts based on typical valence for common elements."""
+    ob = _import_ob()
     typical_valence = {
         1: 1,   # H
         6: 4,   # C
@@ -116,8 +167,9 @@ def _extract_atom_meta_from_xyz(lines: list[str], atom_count: int) -> list[dict[
     return meta
 
 
-def _apply_residue_h_overrides(mol: ob.OBMol, meta: list[dict[str, str]]) -> None:
+def _apply_residue_h_overrides(mol, meta: list[dict[str, str]]) -> None:
     """Override implicit H counts for specific residue/atom cases (HIS/CYS)."""
+    ob = _import_ob()
     metal_atomic_nums = {12, 20, 22, 23, 24, 25, 26, 27, 28, 29, 30, 33, 34, 35, 42, 44, 47, 48, 50, 52, 53}
 
     for idx, atom in enumerate(ob.OBMolAtomIter(mol)):
@@ -146,10 +198,44 @@ def _apply_residue_h_overrides(mol: ob.OBMol, meta: list[dict[str, str]]) -> Non
                 atom.SetImplicitHCount(0)
 
 
+def _write_normalized_xyz(input_path: Path) -> Path:
+    """Write a temporary XYZ with normalized element symbols for Open Babel."""
+    lines = input_path.read_text().splitlines()
+    if len(lines) < 3:
+        raise ValueError("XYZ file is too short")
+
+    header = lines[:2]
+    body = lines[2:]
+
+    normalized_body = []
+    for line in body:
+        stripped = line.strip()
+        if not stripped:
+            normalized_body.append(line)
+            continue
+        parts = stripped.split()
+        if len(parts) < 4:
+            normalized_body.append(line)
+            continue
+        parts[0] = _normalize_element_symbol(parts[0])
+        normalized_body.append(" ".join(parts))
+
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".xyz")
+    tmp_path = Path(tmp.name)
+    tmp.close()
+    tmp_path.write_text("\n".join(header + normalized_body) + "\n")
+    return tmp_path
+
+
 def _append_hydrogens_in_place(xyz_path: Path) -> None:
-    """Append Open Babel-added hydrogens to an XYZ file and update atom count."""
+    """Append Open Babel-added hydrogens to an XYZ file and update atom count.
+
+    If Open Babel is not installed (core-only install), this logs a warning and
+    leaves the file unchanged rather than raising, so the CLI still runs.
+    """
     temp_path = None
     try:
+        ob = _import_ob()
         lines = xyz_path.read_text().splitlines()
         if len(lines) < 2:
             return
@@ -197,6 +283,33 @@ def _append_hydrogens_in_place(xyz_path: Path) -> None:
             temp_path.unlink(missing_ok=True)
 
 
+def append_hydrogens_to_text(xyz_text: str) -> tuple[str, bool]:
+    """Add Open Babel hydrogens to XYZ *text*, returning (new_text, added?).
+
+    Pure-ish helper for the library: writes the text to a temp file, runs the
+    same H-addition used by the CLI, reads it back, and cleans up. Returns the
+    original text with ``added=False`` if Open Babel added nothing.
+    """
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".xyz")
+    tmp_path = Path(tmp.name)
+    tmp.close()
+    try:
+        tmp_path.write_text(xyz_text)
+        try:
+            before = int(xyz_text.splitlines()[0].strip())
+        except (ValueError, IndexError):
+            before = -1
+        _append_hydrogens_in_place(tmp_path)
+        new_text = tmp_path.read_text()
+        try:
+            after = int(new_text.splitlines()[0].strip())
+        except (ValueError, IndexError):
+            after = before
+        return new_text, (after > before)
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+
 def write_xyz(path: str,
               pdb_id: str,
               cluster_index: int,
@@ -207,32 +320,37 @@ def write_xyz(path: str,
               atoms: list[Atom],
               origin_atom: Atom,
               resolution_angs: Optional[float] = None,
-              extra_comment: str = "") -> None:
-    """Write XYZ with origin translated to origin_atom."""
-    ox, oy, oz = origin_atom.coord
-    translated = []
-    filtered_atoms = _filter_backbone_atoms(atoms)
-    for a in filtered_atoms:
-        translated.append((a.element, a.x - ox, a.y - oy, a.z - oz, a))
+              extra_comment: str = "",
+              add_hydrogens: bool = True) -> None:
+    """Write XYZ with origin translated to ``origin_atom``.
+
+    Byte-for-byte unchanged from the historical behaviour when called with the
+    defaults (this is the CLI path): raw uppercase symbols, original atom order,
+    HIS/CYS backbone dropped, and Open Babel hydrogens appended. Pass
+    ``add_hydrogens=False`` to skip the Open Babel step.
+    """
+    text = render_xyz_text(
+        atoms,
+        origin_atom,
+        pdb_id=pdb_id,
+        cluster_index=cluster_index,
+        target=target,
+        cutoff=cutoff,
+        origin_kind=origin_kind,
+        centroid_pt=centroid_pt,
+        resolution_angs=resolution_angs,
+        extra_comment=extra_comment,
+        drop_backbone=True,
+        titlecase=False,
+        absorber_first=False,
+    )
 
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as f:
-        f.write(f"{len(translated)}\n")
-        res_str = f"{resolution_angs:.2f}" if isinstance(resolution_angs, (int, float)) else "NA"
-        comment = (
-            f"PDB={pdb_id} CLUSTER={cluster_index} TARGET={target} CUTOFF={cutoff:.3f} "
-            f"ORIGIN={origin_kind} CENTROID=({centroid_pt[0]:.3f},{centroid_pt[1]:.3f},{centroid_pt[2]:.3f}) "
-            f"RESOLUTION_A={res_str}"
-        )
-        if extra_comment:
-            comment += " " + extra_comment.strip()
-        f.write(comment + "\n")
-        for elm, x, y, z, a in translated:
-            resseq_icode = f"{a.resseq}{a.icode}".strip()
-            meta = f"RES={a.resname} CHAIN={a.chain} RESSEQ={resseq_icode} ATOM={a.atom_name} REC={a.record}"
-            f.write(f"{elm:2s}  {x: .6f}  {y: .6f}  {z: .6f}  # {meta}\n")
+        f.write(text)
 
-    _append_hydrogens_in_place(Path(path))
+    if add_hydrogens:
+        _append_hydrogens_in_place(Path(path))
 
 def ensure_csv_headers(config: PipelineConfig):
     # Ensure output directory exists and clusters CSV has header row
@@ -280,4 +398,3 @@ def append_cache(runs: list[dict], config: PipelineConfig):
         logger.info(f"[+] Updated cache: {config.cache}")
     except Exception as e:
         logger.info(f"[!] Failed to update cache: {e}")
-
