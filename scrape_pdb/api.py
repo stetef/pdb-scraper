@@ -26,7 +26,9 @@ from pathlib import Path
 from typing import Optional
 
 from .constants import ALL_METALS
-from .downloader import fetch_pdb
+# Deliberately from .fetch (stdlib urllib only), never from .downloader:
+# downloader is CLI machinery and imports tqdm/requests (P1.9, 04 §5, D-10).
+from .fetch import fetch_pdb
 from .extract import extract_sites_from_file
 from .site import ExtractConfig, ExtractResult, FetchError, SiteCandidate
 

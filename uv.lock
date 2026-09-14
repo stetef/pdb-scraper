@@ -2019,17 +2019,16 @@ version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "biopython" },
-    { name = "matplotlib" },
     { name = "numpy" },
-    { name = "py3dmol" },
     { name = "pydantic" },
-    { name = "pyyaml" },
-    { name = "requests" },
-    { name = "tqdm" },
-    { name = "xraylarch" },
 ]
 
 [package.optional-dependencies]
+cli = [
+    { name = "pyyaml" },
+    { name = "requests" },
+    { name = "tqdm" },
+]
 dev = [
     { name = "black" },
     { name = "flake8" },
@@ -2037,9 +2036,17 @@ dev = [
     { name = "openbabel-wheel" },
     { name = "pre-commit" },
     { name = "pytest" },
+    { name = "pyyaml" },
+    { name = "requests" },
+    { name = "tqdm" },
 ]
 dft = [
     { name = "openbabel-wheel" },
+]
+plots = [
+    { name = "matplotlib" },
+    { name = "py3dmol" },
+    { name = "xraylarch" },
 ]
 
 [package.metadata]
@@ -2048,20 +2055,23 @@ requires-dist = [
     { name = "black", marker = "extra == 'dev'" },
     { name = "flake8", marker = "extra == 'dev'" },
     { name = "isort", marker = "extra == 'dev'" },
-    { name = "matplotlib", specifier = ">=3.10.8" },
+    { name = "matplotlib", marker = "extra == 'plots'", specifier = ">=3.10.8" },
     { name = "numpy", specifier = ">=2.3.5" },
     { name = "openbabel-wheel", marker = "extra == 'dev'", specifier = ">=3.1.1.22" },
     { name = "openbabel-wheel", marker = "extra == 'dft'", specifier = ">=3.1.1.22" },
     { name = "pre-commit", marker = "extra == 'dev'" },
-    { name = "py3dmol", specifier = ">=2.5.4" },
+    { name = "py3dmol", marker = "extra == 'plots'", specifier = ">=2.5.4" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pytest", marker = "extra == 'dev'" },
-    { name = "pyyaml", specifier = ">=6.0" },
-    { name = "requests", specifier = ">=2.32.5" },
-    { name = "tqdm", specifier = ">=4.67.1" },
-    { name = "xraylarch", specifier = ">=2026.1.1" },
+    { name = "pyyaml", marker = "extra == 'cli'", specifier = ">=6.0" },
+    { name = "pyyaml", marker = "extra == 'dev'", specifier = ">=6.0" },
+    { name = "requests", marker = "extra == 'cli'", specifier = ">=2.32.5" },
+    { name = "requests", marker = "extra == 'dev'", specifier = ">=2.32.5" },
+    { name = "tqdm", marker = "extra == 'cli'", specifier = ">=4.67.1" },
+    { name = "tqdm", marker = "extra == 'dev'", specifier = ">=4.67.1" },
+    { name = "xraylarch", marker = "extra == 'plots'", specifier = ">=2026.1.1" },
 ]
-provides-extras = ["dft", "dev"]
+provides-extras = ["cli", "plots", "dft", "dev"]
 
 [[package]]
 name = "silx"

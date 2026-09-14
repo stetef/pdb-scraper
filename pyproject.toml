@@ -9,19 +9,30 @@ description = "Search and download PDB files; extract metal sites as EXAFS struc
 readme = "README.md"
 requires-python = ">=3.12"
 
+# Core = the library path only (``scrape_pdb.api``): fetch one entry with stdlib
+# urllib, parse with BioPython, cluster/classify with numpy, validate with
+# pydantic. Everything else is an extra (04 §5, D-10, card P1.9) so an EARL
+# API/web image never installs Larch, matplotlib or a 3D viewer (09 §3).
 dependencies = [
     "biopython>=1.86",
-    "matplotlib>=3.10.8",
     "numpy>=2.3.5",
-    "py3dmol>=2.5.4",
     "pydantic>=2.0",
-    "pyyaml>=6.0",
-    "requests>=2.32.5",
-    "tqdm>=4.67.1",
-    "xraylarch>=2026.1.1",
 ]
 
 [project.optional-dependencies]
+# The `scrape-pdb` console script and the batch pipeline behind it: YAML config
+# loading, the RCSB Search API v2 client, progress bars.
+cli = [
+    "pyyaml>=6.0",
+    "requests>=2.32.5",
+    "tqdm>=4.67.1",
+]
+# Analysis/figure scripts under scripts/ — never imported by the package itself.
+plots = [
+    "matplotlib>=3.10.8",
+    "py3dmol>=2.5.4",
+    "xraylarch>=2026.1.1",
+]
 # DFT preparation only: Open Babel adds hydrogens (add_hydrogens=True). The core
 # install and the whole EXAFS/FEFF path work without it — FEFF strips H anyway.
 dft = [
@@ -33,10 +44,18 @@ dev = [
     "isort",
     "flake8",
     "pre-commit",
-    # so the hydrogen-addition tests can run against a plain `.[dev]` install
+    # the suite exercises the CLI as well as the library, so it needs the `cli`
+    # extra, and the hydrogen-addition tests need `dft`
+    "pyyaml>=6.0",
+    "requests>=2.32.5",
+    "tqdm>=4.67.1",
     "openbabel-wheel>=3.1.1.22",
 ]
 
+# The console script requires the `cli` extra: `uv sync --extra cli`. A core-only
+# install still exposes `scrape-pdb`, which then fails on the missing tqdm import.
+# QUESTIONS Q-P1.9-1: should the entry point be gated behind a friendly
+# "install scrape-pdb[cli]" message? 04 §5 is silent; left as-is (card scope).
 [project.scripts]
 scrape-pdb = "scrape_pdb.main:main"
 
@@ -50,6 +69,11 @@ target-version = ['py312']
 [tool.isort]
 profile = "black"
 line_length = 120
+
+[tool.pytest.ini_options]
+markers = [
+    "slow: tests that build a throwaway virtualenv (need `uv` and its package cache)",
+]
 
 [tool.mypy]
 python_version = "3.12"

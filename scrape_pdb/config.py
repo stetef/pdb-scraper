@@ -4,7 +4,6 @@
 import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Union
-import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict
 
 from .models import MustHaveSpec, parse_must_have
@@ -263,6 +262,12 @@ def load_config(config_path: str) -> PipelineConfig:
     if not path_obj.exists():
         raise FileNotFoundError(f"Config file not found: {config_path}")
         
+    # Lazy: 04 §5 puts pyyaml in the `cli` extra, but PipelineConfig sits on the
+    # library import path (writer/parser import it for type hints), so the module
+    # itself must import on a core-only install.
+    # QUESTIONS Q-P1.9-3: the alternative reading is to keep pyyaml a core dep.
+    import yaml
+
     with open(config_path, 'r') as f:
         config_data = yaml.safe_load(f)
 
@@ -357,6 +362,8 @@ def create_example_config(output_path: str = "config.yaml") -> None:
         "log_level": "INFO"
     }
     
+    import yaml  # lazy: pyyaml is a `cli` extra, not a core dep (P1.9, 04 §5)
+
     with open(output_path, 'w') as f:
         yaml.dump(example, f, sort_keys=False)
     
