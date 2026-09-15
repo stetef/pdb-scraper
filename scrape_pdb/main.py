@@ -18,6 +18,36 @@ from .search import search_pdb
 from .writer import ensure_csv_headers, write_altloc_report_header
 
 
+def _resolve_path(path) -> str:
+    """Best-effort absolute, symlink-resolved string form of a path."""
+    try:
+        return str(Path(path).resolve())
+    except Exception:
+        return str(Path(path).absolute())
+
+
+def _is_within_dir(path, directory) -> bool:
+    """True iff ``path`` sits strictly inside ``directory`` (both resolved)."""
+    try:
+        rp = Path(path).resolve()
+        rd = Path(directory).resolve()
+    except Exception:
+        return False
+    return rd in rp.parents
+
+
+def _pipeline_may_remove(path, download_dir, created: set) -> bool:
+    """Whether the pipeline may delete or overwrite ``path`` (P1.10; 04 §2).
+
+    Safe by construction: only files the pipeline itself downloaded this run
+    (``path`` in ``created``) **and** that live inside its own ``download_dir``
+    may be removed. A caller-supplied input path (never in ``created``, usually
+    outside ``download_dir``) is left untouched even if it happens to sit in the
+    download directory.
+    """
+    return _resolve_path(path) in created and _is_within_dir(path, download_dir)
+
+
 def _log_running_rejection_stats(
     logger: logging.Logger,
     run_rejection_counts: Counter[str],
@@ -142,6 +172,14 @@ def run_pipeline(config_path: str, verbose: bool = False) -> int:
         all_written: list[str] = []
         cache_runs: list[dict] = []
         failed_pdbs: list[str] = []
+        # Files the pipeline downloaded this run — the only ones it may delete or
+        # overwrite (P1.10; 04 §2). Caller-supplied inputs never land here.
+        created_paths: set[str] = set()
+        # Caller-supplied inputs left untouched (reported in the summary).
+        untouched_inputs: list[str] = []
+        # Sources already processed this run — so a kept caller input is not re-fed
+        # every batch now that it is no longer deleted (P1.10).
+        processed_sources: set[str] = set()
         
         # In search mode, cache the full candidate list once per run.
         cached_search_ids: list[str] | None = None
@@ -194,6 +232,7 @@ def run_pipeline(config_path: str, verbose: bool = False) -> int:
                     for pdb_id in next_ids:
                         path = fetch_pdb(pdb_id, str(config.download_dir))
                         if path:
+                            created_paths.add(_resolve_path(path))
                             batch_sources.append(path)
                         else:
                             checkpoint.update_status(pdb_id, "download_failed", error_message="download_failed")
@@ -203,18 +242,26 @@ def run_pipeline(config_path: str, verbose: bool = False) -> int:
                     checkpoint=checkpoint,
                     limit=batch_limit,
                     skip_kept=True,
+                    created=created_paths,
                 )
             
+            # Never process the same source twice in one run. Previously the loop
+            # relied on inputs being *deleted* to shrink the batch; now that caller
+            # inputs are kept (P1.10), file-input modes would otherwise re-feed the
+            # same rejected file forever, so we track processed sources explicitly.
+            batch_sources = [s for s in batch_sources if _resolve_path(s) not in processed_sources]
+
             if not batch_sources:
                 logger.info("No more structures to download.")
                 break
-            
+
             logger.info(f"Downloaded {len(batch_sources)} structure(s) in this batch")
-            
+
             # Process each PDB in the batch
             import shutil
             for idx, source_path in enumerate(batch_sources, 1):
                 pdb_id = Path(source_path).stem
+                processed_sources.add(_resolve_path(source_path))
                 
                 logger.info("")
                 logger.info(f"[Batch {idx}/{len(batch_sources)}] Processing: {pdb_id}")
@@ -264,16 +311,29 @@ def run_pipeline(config_path: str, verbose: bool = False) -> int:
                             
                             # Handle PDB file based on save_matching_structures setting
                             if config.output.save_matching_structures:
-                                # Keep PDB: move to matched directory
+                                # Keep PDB in the matched directory. Move it only if
+                                # the pipeline downloaded it this run; a caller-supplied
+                                # input is copied so the original is preserved (P1.10).
                                 matched_path = storage_dir / Path(source_path).name
-                                shutil.move(str(source_path), str(matched_path))
+                                if _pipeline_may_remove(source_path, config.download_dir, created_paths):
+                                    shutil.move(str(source_path), str(matched_path))
+                                    created_paths.discard(_resolve_path(source_path))
+                                else:
+                                    shutil.copy2(str(source_path), str(matched_path))
+                                    untouched_inputs.append(str(source_path))
                                 logger.info(f"✓ Kept {pdb_id} → {matched_path}")
                                 pdb_path_for_cache = str(matched_path)
                             else:
-                                # Don't keep PDB: delete it
+                                # Don't keep the PDB: delete it only if the pipeline
+                                # created it; leave a caller input untouched.
                                 pdb_path_for_cache = str(source_path)
-                                Path(source_path).unlink(missing_ok=True)
-                                logger.info(f"✓ Validated {pdb_id}, deleted PDB (save_matching_structures=false)")
+                                if _pipeline_may_remove(source_path, config.download_dir, created_paths):
+                                    Path(source_path).unlink(missing_ok=True)
+                                    created_paths.discard(_resolve_path(source_path))
+                                    logger.info(f"✓ Validated {pdb_id}, deleted downloaded PDB (save_matching_structures=false)")
+                                else:
+                                    untouched_inputs.append(str(source_path))
+                                    logger.info(f"✓ Validated {pdb_id}, left caller input in place: {source_path}")
                             
                             # Cache this run
                             run = {
@@ -292,28 +352,45 @@ def run_pipeline(config_path: str, verbose: bool = False) -> int:
                                 logger.info(f"✓ Reached target of {max_to_keep} kept structures!")
                                 break
                         else:
-                            # Validation failed - delete this PDB
+                            # Validation failed. Delete the PDB only if the pipeline
+                            # downloaded it; a rejected caller input is left untouched
+                            # and reported (P1.10; 04 §2 — the P1.9 hazard).
                             checkpoint.update_status(pdb_id, "rejected", rejection_reason="no_clusters")
-                            Path(source_path).unlink(missing_ok=True)
-                            logger.info(f"✗ Deleted {pdb_id} (no clusters found)")
+                            if _pipeline_may_remove(source_path, config.download_dir, created_paths):
+                                Path(source_path).unlink(missing_ok=True)
+                                created_paths.discard(_resolve_path(source_path))
+                                logger.info(f"✗ Deleted {pdb_id} (no clusters found)")
+                            else:
+                                untouched_inputs.append(str(source_path))
+                                logger.info(f"✗ Rejected {pdb_id} (no clusters); left caller input in place: {source_path}")
 
                 except Exception as e:
                     logger.error(f"Failed to process {pdb_id}: {e}", exc_info=True)
                     failed_pdbs.append(pdb_id)
                     checkpoint.update_status(pdb_id, "error", error_message=str(e))
-                    # Delete failed PDB
-                    Path(source_path).unlink(missing_ok=True)
-                    logger.info(f"✗ Deleted {pdb_id} (processing error)")
+                    # Delete the PDB only if the pipeline downloaded it.
+                    if _pipeline_may_remove(source_path, config.download_dir, created_paths):
+                        Path(source_path).unlink(missing_ok=True)
+                        created_paths.discard(_resolve_path(source_path))
+                        logger.info(f"✗ Deleted {pdb_id} (processing error)")
+                    else:
+                        untouched_inputs.append(str(source_path))
+                        logger.info(f"✗ Error on {pdb_id}; left caller input in place: {source_path}")
                     continue
             
-            # Clean up any remaining files in download directory
-            logger.info(f"Cleaning download directory: {config.download_dir}")
-            for p in config.download_dir.glob("*"):
+            # Clean up only the files the pipeline itself downloaded this run that
+            # are still in the download directory — never caller files that happen
+            # to sit there (P1.10; 04 §2). This replaces the old "wipe download_dir"
+            # glob, which could delete a user's own PDB folder.
+            logger.info(f"Cleaning downloaded files from: {config.download_dir}")
+            for created in list(created_paths):
+                p = Path(created)
+                if not _is_within_dir(p, config.download_dir):
+                    continue
                 try:
                     if p.is_file():
                         p.unlink()
-                    elif p.is_dir():
-                        shutil.rmtree(p)
+                        created_paths.discard(created)
                 except Exception:
                     logger.debug(f"Failed removing {p}")
 
@@ -371,8 +448,13 @@ def run_pipeline(config_path: str, verbose: bool = False) -> int:
         logger.info(f"  - AltLoc report: {config.altloc_report}")
         logger.info(f"  - Cache: {config.cache}")
         logger.info(f"  - Log: {config.log_file}")
+        if untouched_inputs:
+            logger.info("")
+            logger.info(f"Caller-supplied inputs left untouched ({len(untouched_inputs)}):")
+            for src in untouched_inputs:
+                logger.info(f"  - {src}")
         logger.info("="*60)
-        
+
         if failed_pdbs:
             logger.warning(f"Failed PDBs: {', '.join(failed_pdbs)}")
             return 1

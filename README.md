@@ -84,8 +84,12 @@ Enable `input_mode: "search"` in your config to query RCSB PDB based on your cri
 Highlights:
 - Query by metal ion, resolution cutoff, experimental method, polymer type
 - Respect checkpoint to skip previously processed IDs
-- Periodic cleanup of temp downloads after each `processing.batch_size`
-- Optional saving of validated pdb files
+- Periodic cleanup after each `processing.batch_size` of **only the files the
+  pipeline downloaded itself** into its `temp_directory`. Caller-supplied input
+  files (`paths`/`folder`/`mixed` modes) are never deleted, moved, or
+  overwritten — rejected ones are left in place and listed in the run summary.
+- Optional saving of validated pdb files (a matched caller input is *copied* to
+  the matched directory, not moved)
 - Results stored and IDs marked as `matched`, `rejected`, or `error`
 
 Example:

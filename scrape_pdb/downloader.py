@@ -10,6 +10,7 @@ a module global, so existing monkeypatching in tests and callers is unchanged.
 
 from typing import Optional
 import os
+from pathlib import Path
 from tqdm import tqdm
 
 from .constants import USER_AGENT  # noqa: F401  (kept for backwards compatibility)
@@ -44,21 +45,30 @@ def batch_download_from_list(listfile: str, outdir: str) -> list[str]:
             paths.append(p)
     return paths
 
-def resolve_input_sources(config: PipelineConfig, checkpoint: Optional[CheckpointManager] = None, limit: Optional[int] = None, skip_kept: bool = False) -> list[str]:
+def resolve_input_sources(config: PipelineConfig, checkpoint: Optional[CheckpointManager] = None, limit: Optional[int] = None, skip_kept: bool = False, created: Optional[set] = None) -> list[str]:
     """Resolve input sources based on `PipelineConfig` attributes.
 
     If a `CheckpointManager` is provided, already-completed PDB IDs
     will be skipped to allow restart/resume behavior.
-    
+
     Args:
         config: Pipeline configuration
         checkpoint: Optional checkpoint manager for tracking processed IDs
         limit: Maximum number of structures to download in this call
         skip_kept: If True, skip structures that have already been kept (matched status)
+        created: Optional set that, when given, collects the resolved paths this
+            call *downloaded* into ``download_dir`` (ids/list_file/search/mixed-id
+            modes). User-supplied file paths (paths/folder/mixed-file modes) are
+            never added, so the pipeline can tell what it may safely delete
+            afterwards (P1.10, 04 §2).
     """
     mode = config.input_mode
     data = config.input_data
     download_dir = str(config.download_dir)
+
+    def _track_created(path: str) -> None:
+        if created is not None and path:
+            created.add(str(Path(path).resolve()))
 
     sources: list[str] = []
     config_max = getattr(getattr(config, "processing", None), "max_downloads", None)
@@ -102,6 +112,7 @@ def resolve_input_sources(config: PipelineConfig, checkpoint: Optional[Checkpoin
             path = fetch_pdb(pdb_id, download_dir)
             if path:
                 sources.append(path)
+                _track_created(path)
                 downloaded += 1
             else:
                 record_download_failure(pdb_id)
@@ -143,6 +154,7 @@ def resolve_input_sources(config: PipelineConfig, checkpoint: Optional[Checkpoin
             p = fetch_pdb(t, download_dir)
             if p:
                 sources.append(p)
+                _track_created(p)
                 downloaded += 1
             else:
                 record_download_failure(t)
@@ -179,6 +191,7 @@ def resolve_input_sources(config: PipelineConfig, checkpoint: Optional[Checkpoin
             p = fetch_pdb(pdb_id, download_dir)
             if p:
                 sources.append(p)
+                _track_created(p)
                 downloaded += 1
             else:
                 record_download_failure(pdb_id)
@@ -195,6 +208,7 @@ def resolve_input_sources(config: PipelineConfig, checkpoint: Optional[Checkpoin
                 path = fetch_pdb(item, download_dir)
                 if path:
                     sources.append(path)
+                    _track_created(path)
                     downloaded += 1
                 else:
                     record_download_failure(item)
