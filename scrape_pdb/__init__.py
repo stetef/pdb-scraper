@@ -10,7 +10,7 @@ This package implements a complete pipeline for:
 - Writing XYZ files and CSV summaries
 """
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 __author__ = "Samantha Tetef"
 
 # Core data models
