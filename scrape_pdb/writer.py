@@ -17,7 +17,14 @@ import os
 import tempfile
 
 from .models import Atom
-from .constants import CLUSTERS_CSV_FIELDS, ALTLOC_REPORT_FIELDS
+from .constants import (
+    CLUSTERS_CSV_FIELDS,
+    ALTLOC_REPORT_FIELDS,
+    STANDARD_AMINO_ACIDS,
+    BACKBONE_ATOMS,
+    BACKBONE_DROP_ATOMS,
+    DEFAULT_COORDINATION_CUTOFF,
+)
 from .config import PipelineConfig
 
 import logging
@@ -37,18 +44,105 @@ def _import_ob():
     return ob
 
 
-def _should_drop_backbone_atom(atom: Atom) -> bool:
-    """Return True if HIS/CYS backbone atom (N/C/O) should be dropped."""
-    res = (atom.resname or "").upper()
-    if res not in {"HIS", "CYS"}:
+def backbone_rule_string(coordination_cutoff: float = DEFAULT_COORDINATION_CUTOFF) -> str:
+    """The provenance string describing the active drop_backbone rule (P1.11)."""
+    return (f"drop_N_C_O_OXT_keep_CA; "
+            f"keep_full_backbone_if_coordinating<={coordination_cutoff:.1f}A")
+
+
+def _residues_keeping_full_backbone(
+    atoms: list[Atom], target: str, coordination_cutoff: float
+) -> set[tuple[str, str, str]]:
+    """``residue_id`` of every standard amino-acid residue that has ANY backbone
+    atom (N/CA/C/O/OXT) within ``coordination_cutoff`` of an absorber-element atom.
+
+    Such residues keep their ENTIRE backbone (tetef01: coordinating backbone atoms
+    "shouldn't happen, but if they do, include the whole residue"). The absorber
+    atoms are every atom whose element matches ``target`` (so a polynuclear crop
+    tests against all its absorbers, and the site's own centre is included).
+    """
+    tgt = (target or "").strip().upper()
+    absorbers = [a for a in atoms if (a.element or "").strip().upper() == tgt]
+    if not absorbers:
+        return set()
+    c2 = coordination_cutoff * coordination_cutoff
+    keep: set[tuple[str, str, str]] = set()
+    for a in atoms:
+        if (a.resname or "").upper() not in STANDARD_AMINO_ACIDS:
+            continue
+        if a.residue_id in keep:
+            continue
+        if (a.atom_name or "").strip().upper() not in BACKBONE_ATOMS:
+            continue
+        for ab in absorbers:
+            if ab.serial == a.serial:
+                continue
+            dx, dy, dz = a.x - ab.x, a.y - ab.y, a.z - ab.z
+            if dx * dx + dy * dy + dz * dz <= c2:
+                keep.add(a.residue_id)
+                break
+    return keep
+
+
+def _should_drop_backbone_atom(
+    atom: Atom, keep_full: set[tuple[str, str, str]]
+) -> bool:
+    """P1.11 rule: drop backbone N/C/O/OXT of a standard amino-acid residue unless
+    that residue coordinates the absorber (``keep_full``). Cα is never dropped, and
+    non-standard residues (ligands, waters, modified residues, metals) are untouched.
+    """
+    if (atom.resname or "").upper() not in STANDARD_AMINO_ACIDS:
         return False
-    atom_name = (atom.atom_name or "").strip().upper()
-    return atom_name in {"N", "C", "O"}
+    if atom.residue_id in keep_full:
+        return False
+    return (atom.atom_name or "").strip().upper() in BACKBONE_DROP_ATOMS
 
 
-def _filter_backbone_atoms(atoms: list[Atom]) -> list[Atom]:
-    """Remove HIS/CYS backbone atoms (N/C/O)."""
-    return [a for a in atoms if not _should_drop_backbone_atom(a)]
+def _filter_backbone_atoms(
+    atoms: list[Atom], target: str, coordination_cutoff: float
+) -> list[Atom]:
+    """Apply the P1.11 backbone-drop rule to ``atoms`` (order preserved)."""
+    keep_full = _residues_keeping_full_backbone(atoms, target, coordination_cutoff)
+    return [a for a in atoms if not _should_drop_backbone_atom(a, keep_full)]
+
+
+def ordered_atoms_for_xyz(
+    atoms: list[Atom],
+    origin_atom: Atom,
+    *,
+    absorber_first: bool,
+    drop_backbone: bool,
+    target: str,
+    coordination_cutoff: float = DEFAULT_COORDINATION_CUTOFF,
+) -> list[Atom]:
+    """The exact atom list (order + membership) that :func:`render_xyz_text` writes,
+    BEFORE any hydrogen addition. Shared so ``atoms_meta`` (P1.12) indexes the written
+    xyz line-for-line."""
+    ordered = list(atoms)
+    if absorber_first:
+        rest = [a for a in ordered if a.serial != origin_atom.serial]
+        head = [a for a in ordered if a.serial == origin_atom.serial]
+        ordered = head + rest
+    if drop_backbone:
+        ordered = _filter_backbone_atoms(ordered, target, coordination_cutoff)
+    return ordered
+
+
+def atoms_meta_for(ordered_atoms: list[Atom]) -> list[dict]:
+    """Per-atom annotations (P1.12), 0-based into the written xyz (post-drop, before
+    hydrogens); same length and order as ``ordered_atoms``."""
+    return [
+        {
+            "index": i,
+            "resname": a.resname,
+            "resseq": a.resseq,
+            "chain": a.chain,
+            "atom_name": a.atom_name,
+            "altloc": a.altloc,
+            "is_hetero": a.record == "HETATM",
+        }
+        for i, a in enumerate(ordered_atoms)
+    ]
 
 
 def _normalize_element_symbol(symbol: str) -> str:
@@ -75,13 +169,18 @@ def render_xyz_text(
     drop_backbone: bool = True,
     titlecase: bool = False,
     absorber_first: bool = False,
+    coordination_cutoff: float = DEFAULT_COORDINATION_CUTOFF,
 ) -> str:
     """Build XYZ text with coordinates translated so ``origin_atom`` sits at (0,0,0).
 
     This is the pure, side-effect-free core shared by the CLI writer and the
     library API.
 
-    - ``drop_backbone``  : drop HIS/CYS backbone N/C/O (CLI + library default).
+    - ``drop_backbone``  : drop backbone N/C/O/OXT of every standard amino-acid
+                           residue (Cα always kept), EXCEPT a residue that has a
+                           backbone atom within ``coordination_cutoff`` of an
+                           absorber-element atom — it keeps its full backbone (P1.11).
+    - ``coordination_cutoff`` : the Å threshold for the "keeps full backbone" rule.
     - ``titlecase``      : write "Zn" rather than "ZN" (library convention;
                            CLI keeps raw uppercase for byte-compatible output).
     - ``absorber_first`` : put ``origin_atom`` on the first atom line (library
@@ -91,15 +190,10 @@ def render_xyz_text(
     """
     ox, oy, oz = origin_atom.coord
 
-    ordered = list(atoms)
-    if absorber_first:
-        # Move the origin atom to the front, preserving the order of the rest.
-        rest = [a for a in ordered if a.serial != origin_atom.serial]
-        head = [a for a in ordered if a.serial == origin_atom.serial]
-        ordered = head + rest
-
-    if drop_backbone:
-        ordered = _filter_backbone_atoms(ordered)
+    ordered = ordered_atoms_for_xyz(
+        atoms, origin_atom, absorber_first=absorber_first, drop_backbone=drop_backbone,
+        target=target, coordination_cutoff=coordination_cutoff,
+    )
 
     translated = [(a.element, a.x - ox, a.y - oy, a.z - oz, a) for a in ordered]
 
@@ -324,10 +418,11 @@ def write_xyz(path: str,
               add_hydrogens: bool = True) -> None:
     """Write XYZ with origin translated to ``origin_atom``.
 
-    Byte-for-byte unchanged from the historical behaviour when called with the
-    defaults (this is the CLI path): raw uppercase symbols, original atom order,
-    HIS/CYS backbone dropped, and Open Babel hydrogens appended. Pass
-    ``add_hydrogens=False`` to skip the Open Babel step.
+    The CLI path: raw uppercase symbols, original atom order, and Open Babel
+    hydrogens appended. Backbone dropping follows the P1.11 rule (drop N/C/O/OXT of
+    every standard amino-acid residue, keep Cα, keep a coordinating residue's full
+    backbone) at the default ``coordination_cutoff`` (3.0 Å), matching the library.
+    Pass ``add_hydrogens=False`` to skip the Open Babel step.
     """
     text = render_xyz_text(
         atoms,

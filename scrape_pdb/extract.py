@@ -43,7 +43,13 @@ from .parser import (
 from .site import ExtractConfig, ExtractResult, SiteCandidate
 from .utils import centroid, connected_components, dist
 from .validation import passes_ligand_requirements
-from .writer import append_hydrogens_to_text, render_xyz_text
+from .writer import (
+    append_hydrogens_to_text,
+    render_xyz_text,
+    ordered_atoms_for_xyz,
+    atoms_meta_for,
+    backbone_rule_string,
+)
 
 _LOGGER = logging.getLogger("pipeline.extract")
 
@@ -265,7 +271,16 @@ def _extract_from_atoms(
                     cutoff=sel_radius, origin_kind="absorber", centroid_pt=c_centroid,
                     resolution_angs=resolution, extra_comment=" ".join(extra_bits),
                     drop_backbone=config.drop_backbone, titlecase=True, absorber_first=True,
+                    coordination_cutoff=config.coordination_cutoff,
                 )
+                # P1.12: per-atom annotations, 0-based into the written xyz, taken
+                # from the SAME ordering (post-drop, before hydrogens) render_xyz_text
+                # writes — so atoms_meta[i] is the i-th xyz atom line.
+                atoms_meta = tuple(atoms_meta_for(ordered_atoms_for_xyz(
+                    grp_atoms, origin, absorber_first=True,
+                    drop_backbone=config.drop_backbone, target=element,
+                    coordination_cutoff=config.coordination_cutoff,
+                )))
                 hydrogens_added = False
                 if config.add_hydrogens:
                     xyz_text, hydrogens_added = append_hydrogens_to_text(xyz_text)
@@ -298,6 +313,11 @@ def _extract_from_atoms(
                     "origin_kind_in_cluster": origin_kind,
                     # modelling choices applied (surfaced for expert review):
                     "drop_backbone": config.drop_backbone,
+                    "backbone_rule": (
+                        backbone_rule_string(config.coordination_cutoff)
+                        if config.drop_backbone else "keep_all_backbone"
+                    ),
+                    "coordination_cutoff": config.coordination_cutoff,
                     "include_waters": config.include_waters,
                     "cutoff": config.cutoff,
                     "selection_radius": sel_radius,
@@ -321,6 +341,7 @@ def _extract_from_atoms(
                     xyz_text=xyz_text,
                     hydrogens_added=hydrogens_added,
                     provenance=provenance,
+                    atoms_meta=atoms_meta,
                 ))
 
     if not found_target:

@@ -48,6 +48,21 @@ DEFAULT_CUTOFF = 5.0
 DEFAULT_TARGET = "NI"
 DEFAULT_INCLUDE_WATERS = True
 
+# Backbone-drop rule (P1.11). The 20 standard amino-acid residues whose backbone
+# atoms drop_backbone acts on; anything else (ligands, modified residues, waters,
+# metals) is left untouched.
+STANDARD_AMINO_ACIDS: Set[str] = {
+    "ALA", "ARG", "ASN", "ASP", "CYS", "GLN", "GLU", "GLY", "HIS", "ILE",
+    "LEU", "LYS", "MET", "PHE", "PRO", "SER", "THR", "TRP", "TYR", "VAL",
+}
+# The full protein backbone (used for the coordination test); Cα is ALWAYS kept.
+BACKBONE_ATOMS: Set[str] = {"N", "CA", "C", "O", "OXT"}
+# The backbone atoms drop_backbone removes (Cα excluded — it is always kept).
+BACKBONE_DROP_ATOMS: Set[str] = {"N", "C", "O", "OXT"}
+# Default distance (Å) within which a residue backbone atom "coordinates" an
+# absorber, so that residue keeps its full backbone (A41 first-shell window).
+DEFAULT_COORDINATION_CUTOFF = 3.0
+
 # PDB format specifications
 PDB_RECORD_COLUMNS = {
     "record": (0, 6),

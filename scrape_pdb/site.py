@@ -85,9 +85,15 @@ class ExtractConfig:
     # scatterers). EARL surfaces this as an explicit user toggle; the library
     # keeps them and labels them so nothing is silently dropped.
     include_waters: bool = True
-    # Drop HIS/CYS backbone N/C/O from the crop (a modelling choice for
-    # RPATH≈6 Å EXAFS clusters). Recorded in provenance.
+    # Drop backbone N/C/O/OXT of every standard amino-acid residue (Cα kept) from
+    # the crop, except a residue coordinating the absorber, which keeps its full
+    # backbone (P1.11; a modelling choice for RPATH≈6 Å EXAFS clusters). Recorded in
+    # provenance as ``backbone_rule``.
     drop_backbone: bool = True
+    # Distance (Å) within which a residue backbone atom "coordinates" an absorber,
+    # so that residue keeps its full backbone under drop_backbone (P1.11; default =
+    # the A41 first-shell window). Orchestrator assumption, flagged for tetef01.
+    coordination_cutoff: float = 3.0
     # Add hydrogens via Open Babel. OFF by default: FEFF strips H anyway, and
     # Open Babel places H poorly — the app's DFT block does interactive H
     # editing instead (design doc 04 §3.4). Requires the ``dft`` optional extra.
@@ -146,6 +152,13 @@ class SiteCandidate:
     # Free-form provenance: pdb_id, model, cluster_id, altloc, resolution,
     # title/method/deposition (when known), and the modelling flags applied.
     provenance: dict
+
+    # Per-atom annotations (P1.12), one dict per written xyz atom line, 0-based and
+    # in xyz order (post-drop, BEFORE any hydrogens; so ``atoms_meta[0]`` is the
+    # absorber). Keys: index, resname, resseq, chain, atom_name, altloc, is_hetero.
+    # Consumed by EARL (T2.11 propagation, T4.10 labels). Defaulted so older callers
+    # that build a SiteCandidate positionally keep working.
+    atoms_meta: tuple[dict, ...] = ()
 
     @property
     def n_sites_in_cluster(self) -> int:
