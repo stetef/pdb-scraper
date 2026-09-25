@@ -107,6 +107,7 @@ def build_altloc_files_for_center(
             chosen_atoms = [a for a in chosen_atoms if keep_atom_in_cluster(a, center)]
 
             # Apply H/water toggle
+            strict_pool = chosen_atoms  # strict check sees waters regardless of include_waters
             chosen_atoms = apply_water_toggle(chosen_atoms, include_waters=include_waters)
 
             # Must-have filter on all cluster atoms (exclude center for counts)
@@ -116,7 +117,7 @@ def build_altloc_files_for_center(
             # Coord + ligand filter on coordinating neighbors only
             if coord_filters or ligand_requirements or strict_on:
                 if strict_on:
-                    _analysis = analyze_coordination(center, chosen_atoms, strict_coordination, ligand_requirements)
+                    _analysis = analyze_coordination(center, strict_pool, strict_coordination, ligand_requirements)
                     if not _analysis.ok:
                         logger.info(f"[strict] {pdb_id} altloc {center.chain}{center.resseq} rejected: " + "; ".join(_analysis.errors))
                         continue
@@ -167,6 +168,7 @@ def build_altloc_files_for_center(
                 # cutoff from origin
                 chosen_atoms = [a for a in chosen_atoms if keep_atom_in_cluster(a, origin)]
                 # Apply toggles
+                strict_pool = chosen_atoms  # strict check sees waters regardless of include_waters
                 chosen_atoms = apply_water_toggle(chosen_atoms, include_waters=include_waters)
                 # Must-have on all cluster atoms (exclude center)
                 if not must_have.passes([a for a in chosen_atoms if a.serial != origin.serial]):
@@ -174,7 +176,7 @@ def build_altloc_files_for_center(
                 # Coord + ligand filter on coordinating neighbors only
                 if coord_filters or ligand_requirements or strict_on:
                     if strict_on:
-                        _analysis = analyze_coordination(origin, chosen_atoms, strict_coordination, ligand_requirements)
+                        _analysis = analyze_coordination(origin, strict_pool, strict_coordination, ligand_requirements)
                         if not _analysis.ok:
                             logger.info(f"[strict] {pdb_id} altloc {origin.chain}{origin.resseq} rejected: " + "; ".join(_analysis.errors))
                             continue
@@ -210,6 +212,7 @@ def build_altloc_files_for_center(
                 else:
                     origin = center
                 chosen_atoms = [a for a in chosen_atoms if keep_atom_in_cluster(a, origin)]
+                strict_pool = chosen_atoms  # strict check sees waters regardless of include_waters
                 chosen_atoms = apply_water_toggle(chosen_atoms, include_waters=include_waters)
                 # Must-have on all cluster atoms
                 if not must_have.passes([a for a in chosen_atoms if a.serial != origin.serial]):
@@ -217,7 +220,7 @@ def build_altloc_files_for_center(
                 # Coord + ligand filter on coordinating neighbors only
                 if coord_filters or ligand_requirements or strict_on:
                     if strict_on:
-                        _analysis = analyze_coordination(origin, chosen_atoms, strict_coordination, ligand_requirements)
+                        _analysis = analyze_coordination(origin, strict_pool, strict_coordination, ligand_requirements)
                         if not _analysis.ok:
                             logger.info(f"[strict] {pdb_id} altloc {origin.chain}{origin.resseq} rejected: " + "; ".join(_analysis.errors))
                             continue

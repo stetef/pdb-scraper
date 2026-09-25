@@ -678,7 +678,8 @@ def _process_single_pdb(
                         stats["rejected_cn_distribution"][cn_diag] += 1
                         stats["rejected_coord_distribution"][coord_diag] += 1
                         continue
-                    coord_analysis = coordination_for_config(c, selected, config.validation)
+                    # Strict check sees waters even when they are dropped from the output.
+                    coord_analysis = coordination_for_config(c, selected_union_expanded, config.validation)
                     if coord_analysis.blocking_reasons:
                         _count_strict_rejection(stats, coord_analysis, cn_diag, coord_diag, base_id, c, logger)
                         continue
@@ -731,7 +732,8 @@ def _process_single_pdb(
                     stats["rejected_cn_distribution"][cn_diag] += 1
                     stats["rejected_coord_distribution"][coord_diag] += 1
                     continue
-                coord_analysis = coordination_for_config(c, selected, config.validation)
+                # Strict check sees waters even when they are dropped from the output.
+                coord_analysis = coordination_for_config(c, selected_union_expanded, config.validation)
                 if coord_analysis.blocking_reasons:
                     _count_strict_rejection(stats, coord_analysis, cn_diag, coord_diag, base_id, c, logger)
                     continue

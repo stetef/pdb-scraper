@@ -324,7 +324,9 @@ def test_exact_coordination_number_toggle():
 # PIPELINE INTEGRATION (parser path)
 # ============================================================================
 
-def _write_pipeline_config(tmp_path: Path, *, reqs, strict, dmax: float = 3.2) -> Path:
+def _write_pipeline_config(
+    tmp_path: Path, *, reqs, strict, dmax: float = 3.2, include_waters: bool = True, selection_radius: float = 6.0
+) -> Path:
     validation = {
         "coordination_distance_min": 2.0,
         "coordination_distance_max": dmax,
@@ -337,9 +339,10 @@ def _write_pipeline_config(tmp_path: Path, *, reqs, strict, dmax: float = 3.2) -
         "processing": {
             "temp_directory": str(tmp_path / "downloads"),
             "cutoff": 6.0,
+            "selection_radius": selection_radius,
             "target": "ZN",
             "metals_excluded": [],
-            "include_waters": True,
+            "include_waters": include_waters,
         },
         "output": {
             "results_database": str(tmp_path / "results" / "clusters.csv"),
@@ -356,10 +359,13 @@ def _write_pipeline_config(tmp_path: Path, *, reqs, strict, dmax: float = 3.2) -
     return p
 
 
-def _run(tmp_path, name, reqs, strict):
-    config = load_config(str(_write_pipeline_config(tmp_path, reqs=reqs, strict=strict)))
-    written, _stats = process_pdb(str(FIXTURES / f"{name}.pdb"), config)
-    return written
+def _run_with_stats(tmp_path, name, reqs, strict, **kw):
+    config = load_config(str(_write_pipeline_config(tmp_path, reqs=reqs, strict=strict, **kw)))
+    return process_pdb(str(FIXTURES / f"{name}.pdb"), config)
+
+
+def _run(tmp_path, name, reqs, strict, **kw):
+    return _run_with_stats(tmp_path, name, reqs, strict, **kw)[0]
 
 
 def test_legacy_behaviour_unchanged_when_disabled(tmp_path, monkeypatch):
@@ -392,3 +398,58 @@ def test_strict_mode_rejects_flipped_his_in_pipeline(tmp_path):
 )
 def test_strict_mode_keeps_good_sites_in_pipeline(tmp_path, name, reqs):
     assert len(_run(tmp_path, name, reqs, {"enabled": True})) == 1
+
+
+# 9jev Zn A1201: four His NE2 (2.11-2.20 A) plus two waters (HOH A1387/A1388, 2.22 A),
+# i.e. Zn(His)4(H2O)2. The only altloc atoms in the fixture are HOH A1391 (6.9 / 8.7 A),
+# so selection_radius picks the parser path: 6.0 A -> plain, 7.5 A -> altloc.py split.
+PATHS = [pytest.param(6.0, False, id="plain-path"), pytest.param(7.5, True, id="altloc-path")]
+
+
+@pytest.mark.parametrize("include_waters", [False, True], ids=["waters-off", "waters-on"])
+@pytest.mark.parametrize("selection_radius,altloc_path", PATHS)
+def test_bound_waters_reject_4his_in_pipeline(tmp_path, include_waters, selection_radius, altloc_path):
+    """Regression: strict mode must see bound waters even with include_waters: false.
+
+    The strict check used to analyse the water-filtered atom pool, so count_waters
+    had no effect and Zn(His)4(H2O)2 sites passed as 4-His.
+    """
+    kw = dict(include_waters=include_waters, selection_radius=selection_radius)
+    name = "9jev_zn_A1201"
+
+    def check_path(written):
+        assert written, "expected at least one XYZ"
+        assert all(("altloc" in Path(w).name) is altloc_path for w in written), written
+
+    written, stats = _run_with_stats(tmp_path / "strict", name, REQ_4HIS, {"enabled": True}, **kw)
+    assert written == []
+    if not altloc_path:
+        reasons = stats.get("strict_coordination_reasons") or {}
+        assert {"extra_ligand", "coordination_number"} & set(reasons), stats
+
+    check_path(_run(tmp_path / "no-waters", name, REQ_4HIS, {"enabled": True, "count_waters": False}, **kw))
+    check_path(_run(tmp_path / "off", name, REQ_4HIS, {"enabled": False}, **kw))
+
+
+@pytest.mark.parametrize("include_waters", [False, True], ids=["waters-off", "waters-on"])
+def test_altloc_split_itself_rejects_bound_waters(tmp_path, caplog, include_waters):
+    """altloc.py must reject Zn(His)4(H2O)2 on its own, before writing any split file.
+
+    The parser re-checks written altloc files against the unfiltered pool, which
+    hides an altloc.py bug from the output alone, so assert altloc.py's own
+    rejection log line for each label.
+    """
+    import logging
+
+    caplog.set_level(logging.INFO, logger="pipeline.altloc")
+    written = _run(
+        tmp_path, "9jev_zn_A1201", REQ_4HIS, {"enabled": True},
+        include_waters=include_waters, selection_radius=7.5,
+    )
+    assert written == []
+    altloc_rejections = [
+        r.getMessage() for r in caplog.records
+        if r.name == "pipeline.altloc" and "[strict]" in r.getMessage() and "rejected" in r.getMessage()
+    ]
+    assert altloc_rejections, "altloc.py did not reject the site itself"
+    assert any("HOH" in m for m in altloc_rejections), altloc_rejections
