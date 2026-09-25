@@ -10,6 +10,7 @@ from .writer import write_xyz
 from .cluster import apply_water_toggle, select_coordinating_neighbors
 from .geometry import coord_string
 from .validation import passes_ligand_requirements
+from .coordination import analyze_coordination
 from .utils import dist
 
 import logging
@@ -58,12 +59,14 @@ def build_altloc_files_for_center(
         coord_distance_max: float,
         coord_filters: Optional[set[str]],
         ligand_requirements: Optional[list[object]] = None,
-        coord_residue_keys: Optional[set[tuple[str, str, str]]] = None) -> list[str]:
+        coord_residue_keys: Optional[set[tuple[str, str, str]]] = None,
+        strict_coordination: Optional[object] = None) -> list[str]:
     """
     Implements Step 6 Situations 1–3 around the chosen center.
     Returns list of written XYZ file paths.
     """
     written: list[str] = []
+    strict_on = bool(getattr(strict_coordination, "enabled", False))
 
     def keep_atom_in_cluster(a: Atom, origin: Atom) -> bool:
         if a.serial == origin.serial:
@@ -111,8 +114,15 @@ def build_altloc_files_for_center(
                 continue
             
             # Coord + ligand filter on coordinating neighbors only
-            if coord_filters or ligand_requirements:
-                coord_neigh = select_coordinating_neighbors(center, chosen_atoms, coord_distance_min, coord_distance_max)
+            if coord_filters or ligand_requirements or strict_on:
+                if strict_on:
+                    _analysis = analyze_coordination(center, chosen_atoms, strict_coordination, ligand_requirements)
+                    if not _analysis.ok:
+                        logger.info(f"[strict] {pdb_id} altloc {center.chain}{center.resseq} rejected: " + "; ".join(_analysis.errors))
+                        continue
+                    coord_neigh = _analysis.donors
+                else:
+                    coord_neigh = select_coordinating_neighbors(center, chosen_atoms, coord_distance_min, coord_distance_max)
                 coord_neigh = apply_water_toggle(coord_neigh, include_waters=include_waters)
                 if ligand_requirements and not passes_ligand_requirements(coord_neigh, ligand_requirements):
                     continue
@@ -162,8 +172,15 @@ def build_altloc_files_for_center(
                 if not must_have.passes([a for a in chosen_atoms if a.serial != origin.serial]):
                     continue
                 # Coord + ligand filter on coordinating neighbors only
-                if coord_filters or ligand_requirements:
-                    coord_neigh = select_coordinating_neighbors(origin, chosen_atoms, coord_distance_min, coord_distance_max)
+                if coord_filters or ligand_requirements or strict_on:
+                    if strict_on:
+                        _analysis = analyze_coordination(origin, chosen_atoms, strict_coordination, ligand_requirements)
+                        if not _analysis.ok:
+                            logger.info(f"[strict] {pdb_id} altloc {origin.chain}{origin.resseq} rejected: " + "; ".join(_analysis.errors))
+                            continue
+                        coord_neigh = _analysis.donors
+                    else:
+                        coord_neigh = select_coordinating_neighbors(origin, chosen_atoms, coord_distance_min, coord_distance_max)
                     coord_neigh = apply_water_toggle(coord_neigh, include_waters=include_waters)
                     if ligand_requirements and not passes_ligand_requirements(coord_neigh, ligand_requirements):
                         continue
@@ -198,8 +215,15 @@ def build_altloc_files_for_center(
                 if not must_have.passes([a for a in chosen_atoms if a.serial != origin.serial]):
                     continue
                 # Coord + ligand filter on coordinating neighbors only
-                if coord_filters or ligand_requirements:
-                    coord_neigh = select_coordinating_neighbors(origin, chosen_atoms, coord_distance_min, coord_distance_max)
+                if coord_filters or ligand_requirements or strict_on:
+                    if strict_on:
+                        _analysis = analyze_coordination(origin, chosen_atoms, strict_coordination, ligand_requirements)
+                        if not _analysis.ok:
+                            logger.info(f"[strict] {pdb_id} altloc {origin.chain}{origin.resseq} rejected: " + "; ".join(_analysis.errors))
+                            continue
+                        coord_neigh = _analysis.donors
+                    else:
+                        coord_neigh = select_coordinating_neighbors(origin, chosen_atoms, coord_distance_min, coord_distance_max)
                     coord_neigh = apply_water_toggle(coord_neigh, include_waters=include_waters)
                     if ligand_requirements and not passes_ligand_requirements(coord_neigh, ligand_requirements):
                         continue

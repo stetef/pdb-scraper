@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Union
 from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict
 
+from .coordination import StrictCoordinationConfig
 from .models import MustHaveSpec, parse_must_have
 
 logger = logging.getLogger("pipeline.config")
@@ -149,6 +150,9 @@ class ValidationConfig(BaseModel):
     coord: Optional[Set[str]] = None
     # Residue-aware filter on coordinating neighbors: list of requirements that must all be met.
     ligand_requirements: Optional[List[LigandRequirement]] = None
+    # Opt-in residue-aware + geometry-checked coordination test for configuration
+    # searches (see scrape_pdb.coordination). Off = legacy donor-window behaviour.
+    strict_coordination: StrictCoordinationConfig = Field(default_factory=StrictCoordinationConfig)
 
     @field_validator("coord", mode="before")
     @classmethod

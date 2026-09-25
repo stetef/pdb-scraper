@@ -1,0 +1,100 @@
+# Regression dataset specifications for legacy-vs-strict coordination comparison.
+#
+# Consumed by scripts/compare_strict_coordination.py. These reproduce the EXACT
+# pipeline configuration used for the original large-cys-his runs (read from the
+# data-clone pipeline.log config dumps and the data-clone config.yaml):
+#
+#   4his      : cutoff 3.1, selection_radius 3.5, must_have "N>=4",  waters off,
+#               ligand_requirements [HIS ND1/NE2 count 4]
+#   1cys3his  : same, must_have "N>=3 S>=1",
+#               ligand_requirements [CYS SG count 1, HIS ND1/NE2 count 3]
+#   4cys      : cutoff 2.6, must_have "S>=4",
+#               ligand_requirements [CYS SG count 4]   (spot check, first `limit` PDBs)
+#
+# PATHS: dataset file locations are RELATIVE to a data root supplied on the CLI
+# (`--data-root`, whose default lives in the script, not here). This file is
+# committed, so it holds no absolute paths and no output location. Output goes
+# to `--output-root` (default in the script). Inputs are read-only; the harness
+# writes only under output-root.
+
+# Strict-coordination block applied on top of the legacy config for the "strict"
+# run (keys per the validation.strict_coordination schema in config.py).
+# NOTE: donor_windows.S lower bound was lowered 2.10 -> 1.95 so genuine short
+# Zn-S bonds (e.g. Cys-SG ~2.00 A) are not dropped; N/O keep their sub-2.0 floors
+# that recover short Zn-N/O bonds the legacy uniform 2.0 A floor excluded.
+strict_coordination:
+  enabled: true
+  contact_radius: 2.8
+  donor_windows:
+    S: [1.95, 2.60]
+    N: [1.85, 2.45]
+    O: [1.80, 2.60]
+  his_max_lone_pair_deg: 35
+  his_ring_c_margin: 0.6
+  exact_coordination_number: true
+  count_waters: true
+
+# Shared legacy validation window. The original his-type runs used the data-clone
+# config.yaml value coordination_distance_max: 3.2 (NOT the 2.0/2.8 pipeline
+# default) — that wider window is what let flipped-His sites (a His N at ~2.9-3.0
+# A) be counted as the 4th N and legacy-kept as "4N". With 2.8 the legacy run
+# would not reproduce the original kept sites. 4cys's exact window was not
+# recorded; 3.2 is assumed for it.
+coordination_distance_min: 2.0
+coordination_distance_max: 3.2
+
+datasets:
+  - name: 4his-large
+    rel_pdb_files_dir: clustering-zinc-fingers/data/4his-large/pdb-files
+    rel_qc_report: clustering-zinc-fingers/cluster-output/4his-large/validation/qc_report-sampled-xyz-files-for-val.csv
+    rel_original_clusters_csv: pdb-scraper/data/large-cys-his-datasets/4his-large/output/clusters_summary.csv
+    expected_strict_kept: 11        # of the legacy-kept sites (strict ∩ legacy)
+    expected_total_sites: 36
+    processing:
+      cutoff: 3.1
+      selection_radius: 3.5
+      target: ZN
+      must_have: "N>=4"
+      include_waters: false
+    ligand_requirements:
+      - resnames: [HIS]
+        atom_names: [ND1, NE2]
+        count: 4
+
+  - name: 1cys3his-large
+    rel_pdb_files_dir: clustering-zinc-fingers/data/1cys3his-large/pdb-files
+    rel_qc_report: clustering-zinc-fingers/cluster-output/1cys3his-large/validation/qc_report-sampled-xyz-files-for-val.csv
+    rel_original_clusters_csv: pdb-scraper/data/large-cys-his-datasets/1cys3his-large/output/clusters_summary.csv
+    expected_strict_kept: 28        # of the legacy-kept sites (strict ∩ legacy)
+    expected_total_sites: 30
+    processing:
+      cutoff: 3.1
+      selection_radius: 3.5
+      target: ZN
+      must_have: "N>=3 S>=1"
+      include_waters: false
+    ligand_requirements:
+      - resnames: [CYS]
+        atom_names: [SG]
+        count: 1
+      - resnames: [HIS]
+        atom_names: [ND1, NE2]
+        count: 3
+
+  # Spot check only: the 4cys input dir holds ~1500 PDBs; the harness symlinks the
+  # first `limit` (sorted) into a temp input dir under output-root and runs those.
+  # No QC report / original baseline — the ask is how many legacy-kept 4cys sites
+  # strict drops, and why.
+  - name: 4cys-large
+    rel_pdb_files_dir: clustering-zinc-fingers/data/4cys-large/pdb-files
+    limit: 30
+    processing:
+      cutoff: 2.6
+      selection_radius: 3.5
+      target: ZN
+      must_have: "S>=4"
+      include_waters: false
+    ligand_requirements:
+      - resnames: [CYS]
+        atom_names: [SG]
+        count: 4

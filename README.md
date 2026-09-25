@@ -237,6 +237,76 @@ Here are some examples:
 | `coordination_distance_max` | float | . | . |
 | `coordination_distance_max` | float | . | . |
 | `coord` | string or list | `null` | Allowed COORD strings (e.g., `4S`, `1N3S`). Only clusters/XYZ with a matching COORD are retained; others are skipped (altloc XYZ files are removed if filtered out). Omit or set to `null` to accept all. |
+| `strict_coordination` | mapping | `enabled: false` | Residue-aware coordination check for configuration searches; see below. |
+
+### Strict Coordination (configuration searches)
+
+`ligand_requirements` alone decides coordination by keeping every N/O/S atom inside
+`coordination_distance_min`–`coordination_distance_max`. For searches like "Zn bound by exactly 4 His" this miscounts:
+
+- **It counts atoms, not residues.** A His with both ND1 and NE2 inside a generous window (e.g. 2.0–3.2 Å) counts twice, so a 3-His site passes as 4-His.
+- **It ignores carbon.** If a His ring is modelled flipped (CE1 ≈ 2.0 Å from Zn, the labelled N ≈ 3 Å away), the His still counts through its far N.
+- **It can't see extra ligands.** Sulfate, phosphate, Asp/Glu, inhibitors and waters aren't in the requirement list, so mixed-ligand sites still pass.
+
+With `validation.strict_coordination.enabled: true`, every residue whose nearest heavy atom is within `contact_radius` of the metal counts as one ligand. That nearest atom is the residue's only donor. The site is rejected if it fails any of these checks:
+
+| Reason | Meaning |
+|--------|---------|
+| `carbon_contact` | A residue's closest atom to the metal is a carbon, closer than any of its N/O/S atoms (e.g. a flipped His ring). |
+| `donor_distance` | The donor lies outside its element's window in `donor_windows`. |
+| `his_geometry` | A His binds through something other than ND1/NE2, or the metal is more than `his_max_lone_pair_deg` off the N lone pair, or the ring carbons next to the donor N are less than `his_ring_c_margin` Å farther than the N. |
+| `extra_ligand` | A coordinating residue (waters included, if `count_waters`) matches no ligand requirement. |
+| `coordination_number` | With `exact_coordination_number`, the number of coordinating residues differs from the sum of the requirement `count`s. |
+| `ligand_requirements` | The per-residue donor counts don't match the requirements. |
+
+The last three are checked only when `ligand_requirements` is set. In strict mode, `contact_radius` and `donor_windows` decide coordination instead of `coordination_distance_min`/`max`.
+
+Strict mode is opt-in. With it off (the default), the pipeline behaves exactly as before. It applies to the batch pipeline, including altloc splitting, but not to the library `extract_sites` path. Rejections are counted under `strict_coordination` in the run stats and logged with a `[strict]` prefix. `count_waters` asks whether a water is bound to the metal, so it is independent of `processing.include_waters`: a bound water disqualifies a 4-coordinate site whether or not waters are written to the output.
+
+Defaults:
+
+```yaml
+validation:
+  strict_coordination:
+    enabled: false
+    contact_radius: 2.8          # Å; a residue is a candidate ligand if its nearest heavy atom is this close
+    donor_windows:               # Å, allowed metal–donor distance per element
+      S: [1.95, 2.60]              # real 4-Cys Zn–S can be modelled as short as ~1.95 Å (e.g. 1axe)
+      N: [1.85, 2.45]
+      O: [1.80, 2.60]
+    default_window: [1.80, 2.80] # other donor elements
+    his_max_lone_pair_deg: 35.0
+    his_ring_c_margin: 0.6       # Å
+    exact_coordination_number: true
+    count_waters: true
+```
+
+Example, 4-His Zn:
+
+```yaml
+validation:
+  ligand_requirements:
+    - resname: HIS
+      atom_names: [ND1, NE2]
+      count: 4
+  strict_coordination:
+    enabled: true
+```
+
+Example, 1-Cys/3-His Zn:
+
+```yaml
+validation:
+  ligand_requirements:
+    - resname: CYS
+      atom_names: [SG]
+      count: 1
+    - resname: HIS
+      atom_names: [ND1, NE2]
+      count: 3
+  strict_coordination:
+    enabled: true
+```
 
 ### Input Modes
 

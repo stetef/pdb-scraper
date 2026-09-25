@@ -27,6 +27,7 @@ from .config import PipelineConfig
 from .writer import ensure_csv_headers, write_altloc_report_header, write_clusters_csv_row, append_altloc_rows, write_xyz
 from .geometry import classify_geometry, coord_string
 from .validation import passes_ligand_requirements, diagnose_ligand_requirements
+from .coordination import coordination_for_config
 
 import logging
 
@@ -325,6 +326,19 @@ def _extract_pdb_model_blocks(path: str) -> tuple[list[str], list[list[str]]]:
     return header_lines, model_blocks
 
 
+def _count_strict_rejection(stats: dict, analysis, cn_diag: int, coord_diag: str,
+                            pdb_id: str, center: Atom, logger: logging.Logger) -> None:
+    """Record a site rejected by strict coordination (validation.strict_coordination)."""
+    stats["rejections"]["strict_coordination"] += 1
+    stats["rejected_cn_distribution"][cn_diag] += 1
+    stats["rejected_coord_distribution"][coord_diag] += 1
+    reasons = stats.setdefault("strict_coordination_reasons", Counter())
+    for r in analysis.reasons:
+        reasons[r] += 1
+    logger.info(f"[strict] {pdb_id} {center.resname}{center.chain}{center.resseq} rejected: "
+                + "; ".join(analysis.errors))
+
+
 def _process_single_pdb(
     pdb_path: str,
     config: PipelineConfig
@@ -449,12 +463,7 @@ def _process_single_pdb(
         # Expand selection with full residues for coordinating atoms to the target center(s)
         coord_residue_keys: set[tuple[str, str, str]] = set()
         for c in target_centers:
-            coord_neigh_for_res = select_coordinating_neighbors(
-                c,
-                selected_union,
-                config.validation.coordination_distance_min,
-                config.validation.coordination_distance_max,
-            )
+            coord_neigh_for_res = coordination_for_config(c, selected_union, config.validation).donors
             for a in coord_neigh_for_res:
                 coord_residue_keys.add(residue_key(a))
 
@@ -493,6 +502,7 @@ def _process_single_pdb(
             coord_filters=config.coord_filters,
             ligand_requirements=config.validation.ligand_requirements,
             coord_residue_keys=selection_residue_keys,
+            strict_coordination=config.validation.strict_coordination,
         )
 
         if alt_written:
@@ -508,9 +518,7 @@ def _process_single_pdb(
                         neigh_all = select_neighbors_from(c, selected_union, config.selection_radius)
                         neigh_all = apply_water_toggle(neigh_all, include_waters=config.include_waters)
                         # Get coordinating neighbors for geometry and coord filter
-                        coord_neigh = select_coordinating_neighbors(c, selected_union,
-                                                                    config.validation.coordination_distance_min,
-                                                                    config.validation.coordination_distance_max)
+                        coord_neigh = coordination_for_config(c, selected_union, config.validation).donors
                         coord_neigh = apply_water_toggle(coord_neigh, include_waters=config.include_waters)
                         cn_diag = len(coord_neigh)
                         coord_diag = coord_string(coord_neigh)
@@ -519,6 +527,14 @@ def _process_single_pdb(
                             stats["rejections"]["must_have"] += 1
                             stats["rejected_cn_distribution"][cn_diag] += 1
                             stats["rejected_coord_distribution"][coord_diag] += 1
+                            continue
+                        coord_analysis = coordination_for_config(c, selected_union, config.validation)
+                        if coord_analysis.blocking_reasons:
+                            _count_strict_rejection(stats, coord_analysis, cn_diag, coord_diag, base_id, c, logger)
+                            try:
+                                Path(path).unlink(missing_ok=True)
+                            except Exception:
+                                pass
                             continue
                         if not passes_ligand_requirements(coord_neigh, config.validation.ligand_requirements):
                             stats["rejections"]["ligand_requirements"] += 1
@@ -567,9 +583,7 @@ def _process_single_pdb(
                     neigh_all = apply_water_toggle(neigh_all, include_waters=config.include_waters)
                     
                     # Always compute coordination info for diagnostics before filtering
-                    coord_neigh_diag = select_coordinating_neighbors(c, selected_union,
-                                                                config.validation.coordination_distance_min,
-                                                                config.validation.coordination_distance_max)
+                    coord_neigh_diag = coordination_for_config(c, selected_union, config.validation).donors
                     coord_neigh_diag = apply_water_toggle(coord_neigh_diag, include_waters=config.include_waters)
                     cn_diag = len(coord_neigh_diag)
                     coord_diag = coord_string(coord_neigh_diag)
@@ -580,9 +594,15 @@ def _process_single_pdb(
                         stats["rejected_coord_distribution"][coord_diag] += 1
                         continue
                     # Get coordinating neighbors for geometry and coord filter
-                    coord_neigh = select_coordinating_neighbors(c, selected_union,
-                                                                config.validation.coordination_distance_min,
-                                                                config.validation.coordination_distance_max)
+                    coord_neigh = coordination_for_config(c, selected_union, config.validation).donors
+                    coord_analysis = coordination_for_config(c, selected_union, config.validation)
+                    if coord_analysis.blocking_reasons:
+                        _count_strict_rejection(stats, coord_analysis, cn_diag, coord_diag, base_id, c, logger)
+                        try:
+                            Path(path).unlink(missing_ok=True)
+                        except Exception:
+                            pass
+                        continue
                     if not passes_ligand_requirements(coord_neigh, config.validation.ligand_requirements):
                         stats["rejections"]["ligand_requirements"] += 1
                         stats["rejected_cn_distribution"][cn_diag] += 1
@@ -649,9 +669,7 @@ def _process_single_pdb(
                     # Get all neighbors within selection_radius for must_have filter
                     neigh_all = select_neighbors_from(c, selected, config.selection_radius)
                     # Get coordinating neighbors for geometry and coord filter
-                    coord_neigh = select_coordinating_neighbors(c, selected,
-                                                                config.validation.coordination_distance_min,
-                                                                config.validation.coordination_distance_max)
+                    coord_neigh = coordination_for_config(c, selected, config.validation).donors
                     cn_diag = len(coord_neigh)
                     coord_diag = coord_string(coord_neigh)
                     
@@ -659,6 +677,10 @@ def _process_single_pdb(
                         stats["rejections"]["must_have"] += 1
                         stats["rejected_cn_distribution"][cn_diag] += 1
                         stats["rejected_coord_distribution"][coord_diag] += 1
+                        continue
+                    coord_analysis = coordination_for_config(c, selected, config.validation)
+                    if coord_analysis.blocking_reasons:
+                        _count_strict_rejection(stats, coord_analysis, cn_diag, coord_diag, base_id, c, logger)
                         continue
                     if not passes_ligand_requirements(coord_neigh, config.validation.ligand_requirements):
                         stats["rejections"]["ligand_requirements"] += 1
@@ -700,9 +722,7 @@ def _process_single_pdb(
                 # Get all neighbors within selection_radius for must_have filter
                 neigh_all = select_neighbors_from(c, selected, config.selection_radius)
                 # Get coordinating neighbors for geometry and coord filter
-                coord_neigh = select_coordinating_neighbors(c, selected,
-                                                            config.validation.coordination_distance_min,
-                                                            config.validation.coordination_distance_max)
+                coord_neigh = coordination_for_config(c, selected, config.validation).donors
                 cn_diag = len(coord_neigh)
                 coord_diag = coord_string(coord_neigh)
                 
@@ -710,6 +730,10 @@ def _process_single_pdb(
                     stats["rejections"]["must_have"] += 1
                     stats["rejected_cn_distribution"][cn_diag] += 1
                     stats["rejected_coord_distribution"][coord_diag] += 1
+                    continue
+                coord_analysis = coordination_for_config(c, selected, config.validation)
+                if coord_analysis.blocking_reasons:
+                    _count_strict_rejection(stats, coord_analysis, cn_diag, coord_diag, base_id, c, logger)
                     continue
                 if not passes_ligand_requirements(coord_neigh, config.validation.ligand_requirements):
                     stats["rejections"]["ligand_requirements"] += 1
@@ -819,6 +843,8 @@ def process_pdb(
 
             for k, v in (stats.get("rejections") or {}).items():
                 agg_stats["rejections"][str(k)] += int(v)
+            for k, v in (stats.get("strict_coordination_reasons") or {}).items():
+                agg_stats.setdefault("strict_coordination_reasons", Counter())[str(k)] += int(v)
             for cn, count in (stats.get("rejected_cn_distribution") or {}).items():
                 agg_stats["rejected_cn_distribution"][int(cn)] += int(count)
             for coord, count in (stats.get("rejected_coord_distribution") or {}).items():
