@@ -3,6 +3,7 @@
 
 import logging
 import sys
+import time
 from pathlib import Path
 import argparse
 from collections import Counter
@@ -16,6 +17,14 @@ from .parser import process_pdb
 from .writer import append_cache
 from .search import search_pdb
 from .writer import ensure_csv_headers, write_altloc_report_header
+
+
+# Search-mode download resilience: retries for a batch in which every download
+# failed (exponential backoff from DOWNLOAD_BACKOFF_S), and how many such batches
+# in a row abort the run.
+DOWNLOAD_RETRIES = 3
+DOWNLOAD_BACKOFF_S = 30.0
+MAX_FAILED_BATCHES = 5
 
 
 def _resolve_path(path) -> str:
@@ -185,6 +194,8 @@ def run_pipeline(config_path: str, verbose: bool = False) -> int:
         cached_search_ids: list[str] | None = None
 
         batch_num = 0
+        failed_batches_in_a_row = 0
+        aborted_on_outage = False
 
         while kept_count < max_to_keep:
             batch_num += 1
@@ -229,13 +240,40 @@ def run_pipeline(config_path: str, verbose: bool = False) -> int:
                 else:
                     next_ids = pending_ids[:batch_limit]
                     batch_sources = []
-                    for pdb_id in next_ids:
-                        path = fetch_pdb(pdb_id, str(config.download_dir))
-                        if path:
-                            created_paths.add(_resolve_path(path))
-                            batch_sources.append(path)
-                        else:
-                            checkpoint.update_status(pdb_id, "download_failed", error_message="download_failed")
+                    # A batch where *every* download fails is an outage (network /
+                    # RCSB), not the end of the search: back off and retry it, then
+                    # move on instead of mistaking the empty batch for "no more".
+                    for attempt in range(DOWNLOAD_RETRIES + 1):
+                        failed_ids = []
+                        for pdb_id in next_ids:
+                            path = fetch_pdb(pdb_id, str(config.download_dir))
+                            if path:
+                                created_paths.add(_resolve_path(path))
+                                batch_sources.append(path)
+                            else:
+                                failed_ids.append(pdb_id)
+                        if batch_sources or attempt == DOWNLOAD_RETRIES:
+                            break
+                        wait_s = DOWNLOAD_BACKOFF_S * 2 ** attempt
+                        logger.warning(
+                            f"All {len(next_ids)} downloads in batch {batch_num} failed; "
+                            f"retrying in {wait_s:.0f} s (attempt {attempt + 1}/{DOWNLOAD_RETRIES})"
+                        )
+                        time.sleep(wait_s)
+                    for pdb_id in failed_ids:
+                        checkpoint.update_status(pdb_id, "download_failed", error_message="download_failed")
+                    if not batch_sources:
+                        failed_batches_in_a_row += 1
+                        if failed_batches_in_a_row >= MAX_FAILED_BATCHES:
+                            logger.error(
+                                f"Aborting: {failed_batches_in_a_row} batches in a row failed to download "
+                                "(network or RCSB outage?). Re-run the same config to resume; delete "
+                                "'download_failed' rows from the checkpoint to retry those IDs."
+                            )
+                            aborted_on_outage = True
+                            break
+                        continue
+                    failed_batches_in_a_row = 0
             else:
                 batch_sources = resolve_input_sources(
                     config,
@@ -457,6 +495,9 @@ def run_pipeline(config_path: str, verbose: bool = False) -> int:
 
         if failed_pdbs:
             logger.warning(f"Failed PDBs: {', '.join(failed_pdbs)}")
+            return 1
+        if aborted_on_outage:
+            logger.error("Run aborted on a download outage before the search was exhausted.")
             return 1
         
         return 0
